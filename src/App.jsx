@@ -26,26 +26,26 @@ export default function App() {
     vx: 0,
     vy: 0,
     speedKmh: 0,
+    aFwd: 0,
     latencyMs: 0.35,
     pitchDeg: 0,
     rollDeg: 0,
     headingDeg: 0,
-    isMoving: false,
-    accelerationMps2: 0
+    isMoving: false
   });
 
   // 1-Second Transformer & Alignment Metrics State
   const [transformerMetrics, setTransformerMetrics] = useState({
     lastPredDx: 0,
     lastPredDy: 0,
+    aFwd: 0,
     stepCount: 0,
     lastUpdateSec: 0,
     pitchDeg: 0,
     rollDeg: 0,
     rawGyr: [0, 0, 0],
     alignedGyr: [0, 0, 0],
-    isMoving: false,
-    dvFwd: 0
+    isMoving: false
   });
 
   // Simulator & Mobile State
@@ -65,8 +65,8 @@ export default function App() {
     speedKmh: 0
   });
 
-  const headingRadRef = useRef(0.0);
-  const curSpeedMpsRef = useRef(0.0);
+  const headingRadRef = useRef(0.0); // 0 = North (+Y)
+  const curSpeedMpsRef = useRef(0.0); // Kinematic integrated speed in m/s
   const trailRef = useRef([{ x: 0, y: 0, speed: 0 }]);
   const hiddenStateRef = useRef(new Float32Array(32));
   const recenterRef = useRef(null);
@@ -159,7 +159,7 @@ export default function App() {
     onnxInferenceService.setMode(modelMode);
   }, [modelMode]);
 
-  // Main Telemetry, Gyro Heading Integration & Kinematic Acceleration Loop
+  // Main Telemetry, Gyro Heading Integration & 2-Stage Kinematic Loop
   useEffect(() => {
     let animId;
 
@@ -191,7 +191,7 @@ export default function App() {
           demoTimeRef.current += dt;
           rawImu = [
             (Math.random() - 0.5) * 0.15,
-            1.8 + (Math.random() - 0.5) * 0.2,
+            2.5 + (Math.random() - 0.5) * 0.2,
             9.81 + (Math.random() - 0.5) * 0.1,
             (Math.random() - 0.5) * 0.02,
             (Math.random() - 0.5) * 0.02,
@@ -202,7 +202,7 @@ export default function App() {
           const turnRate = Math.sin(demoTimeRef.current * 0.8) * 0.7;
           rawImu = [
             (Math.random() - 0.5) * 0.15,
-            1.5 + (Math.random() - 0.5) * 0.2,
+            2.2 + (Math.random() - 0.5) * 0.2,
             9.81 + (Math.random() - 0.5) * 0.1,
             (Math.random() - 0.5) * 0.02,
             (Math.random() - 0.5) * 0.02,
@@ -227,8 +227,8 @@ export default function App() {
         }
       }
 
-      // 2. 3D Gravity Orientation Alignment (Canonical Screen-Facing-Up)
-      const alignResult = orientationAligner.alignIMU(rawImu, dt);
+      // 2. 3D Gravity Orientation Alignment (Screen-Up Frame)
+      const alignResult = orientationAligner.alignIMU(rawImu);
       const imu = alignResult.alignedImu;
       currentImuRef.current = imu;
 
@@ -244,7 +244,7 @@ export default function App() {
       gyr[1].push(gy); gyr[1].shift();
       gyr[2].push(gz); gyr[2].shift();
 
-      // 4. Continuous Heading Integration from Screen-Up Gz
+      // 4. Continuous Gyroscope Heading Integration
       headingRadRef.current += gz * dt;
 
       // 5. Accumulate sliding 1-second continuous window
@@ -254,28 +254,26 @@ export default function App() {
 
       timeSinceLast1sUpdateRef.current += dt;
 
-      // 6. Every 1.0 Second: Kinematic Acceleration & Velocity Integration
+      // 6. Every 1.0 Second: Run 2-Stage Kinematic Acceleration Pipeline
       if (timeSinceLast1sUpdateRef.current >= 1.0 && win.length >= 10) {
         timeSinceLast1sUpdateRef.current = 0.0;
         stepCountRef.current++;
 
-        // Run 2-Stage Inference: Classifier -> Rest (0.0) or Predict dv
+        // Stage 1 Classifier & Stage 2 Acceleration Estimator
         const pred = await onnxInferenceService.predict1sAcceleration(win);
-        let fwdDisp = 0.0;
+        const vPrev = curSpeedMpsRef.current;
 
-        if (!pred.isMoving) {
-          curSpeedMpsRef.current = 0.0;
-          fwdDisp = 0.0;
+        // Kinematic Speed Integration with Zero-Velocity (ZUPT) Gating
+        if (pred.isMoving) {
+          curSpeedMpsRef.current = Math.max(0.0, curSpeedMpsRef.current + pred.aFwd * 1.0);
         } else {
-          const prevSpeed = curSpeedMpsRef.current;
-          if (prevSpeed < 0.2) {
-            curSpeedMpsRef.current = Math.max(1.0, prevSpeed + pred.dvFwd + 1.2);
-          } else {
-            curSpeedMpsRef.current = Math.max(0.2, prevSpeed + pred.dvFwd);
-          }
-          fwdDisp = (prevSpeed + curSpeedMpsRef.current) * 0.5;
+          curSpeedMpsRef.current = 0.0;
         }
 
+        const curSpeedKmh = curSpeedMpsRef.current * 3.6;
+        const fwdDisp = ((vPrev + curSpeedMpsRef.current) / 2.0) * 1.0;
+
+        // Rotate Body Displacement into Global Coordinates using Integrated Heading
         const heading = headingRadRef.current;
         const dxWorld = fwdDisp * Math.sin(heading);
         const dyWorld = fwdDisp * Math.cos(heading);
@@ -286,7 +284,7 @@ export default function App() {
         motion.vx = dxWorld;
         motion.vy = dyWorld;
         motion.speed = fwdDisp;
-        motion.speedKmh = curSpeedMpsRef.current * 3.6;
+        motion.speedKmh = curSpeedKmh;
 
         // Append to trail
         const trail = trailRef.current;
@@ -299,18 +297,19 @@ export default function App() {
           posY: motion.posY,
           vx: dxWorld,
           vy: dyWorld,
-          speedKmh: motion.speedKmh,
+          speedKmh: curSpeedKmh,
+          aFwd: pred.aFwd,
           latencyMs: pred.latencyMs,
           pitchDeg: alignResult.pitchDeg,
           rollDeg: alignResult.rollDeg,
           headingDeg: ((heading * 180.0) / Math.PI) % 360,
-          isMoving: pred.isMoving,
-          accelerationMps2: pred.dvFwd
+          isMoving: pred.isMoving
         });
 
         setTransformerMetrics({
           lastPredDx: dxWorld,
           lastPredDy: dyWorld,
+          aFwd: pred.aFwd,
           fwdDispMeters: fwdDisp,
           stepCount: stepCountRef.current,
           lastUpdateSec: Math.round(performance.now() / 1000),
@@ -318,8 +317,7 @@ export default function App() {
           rollDeg: alignResult.rollDeg,
           rawGyr: alignResult.rawGyr || [0, 0, 0],
           alignedGyr: [gx, gy, gz],
-          isMoving: pred.isMoving,
-          dvFwd: pred.dvFwd
+          isMoving: pred.isMoving
         });
       }
 
@@ -387,7 +385,7 @@ export default function App() {
 
   return (
     <div className="app-container">
-      {/* Top Telemetry Navigation */}
+      {/* Top Telemetry Navigation with v0.1.8 */}
       <TopNav
         modelMode={modelMode}
         posX={telemetry.posX}
@@ -395,12 +393,12 @@ export default function App() {
         vx={telemetry.vx}
         vy={telemetry.vy}
         speedKmh={telemetry.speedKmh}
+        aFwd={telemetry.aFwd}
         latencyMs={telemetry.latencyMs}
         pitchDeg={telemetry.pitchDeg}
         rollDeg={telemetry.rollDeg}
         headingDeg={telemetry.headingDeg}
         isMoving={telemetry.isMoving}
-        accelerationMps2={telemetry.accelerationMps2}
         isAlignEnabled={isAlignEnabled}
         onToggleAlign={() => setIsAlignEnabled(!isAlignEnabled)}
         isONNXReady={isONNXReady}

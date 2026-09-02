@@ -1,7 +1,7 @@
 /**
- * ONNX Runtime Web Inference Service for Kinematic Acceleration System
+ * ONNX Runtime Web Inference Service for 2-Stage Kinematic Acceleration System
  * Stage 1: RestMovingClassifierMLP (Zero-Velocity Stationary Detector)
- * Stage 2: IMUTransformerTLIO (1-Second Net Acceleration dv Estimator)
+ * Stage 2: IMUTransformerTLIO (Forward Acceleration Δv Estimator)
  */
 
 import * as ort from 'onnxruntime-web';
@@ -22,12 +22,12 @@ class ONNXInferenceService {
       features: {
         names: ['ax', 'ay', 'az', 'gx', 'gy', 'gz'],
         mean: [0.0, 0.0, 9.982, 0.002, -0.008, 0.006],
-        std: [1.0, 1.0, 0.621, 0.074, 0.150, 0.141]
+        std: [1.0, 1.0, 0.621, 0.074, 0.15, 0.141]
       },
       targets: {
         names: ['dv_lateral', 'dv_forward'],
         mean: [0.0, 0.0],
-        std: [1.0, 0.337]
+        std: [1.0, 0.3371]
       }
     };
   }
@@ -37,6 +37,7 @@ class ONNXInferenceService {
       ort.env.wasm.numThreads = 1;
       ort.env.wasm.simd = true;
 
+      // 1. Fetch Scaler Parameters
       try {
         const scalerRes = await fetch(`${modelsBasePath}/scaler_params.json`);
         if (scalerRes.ok) {
@@ -50,6 +51,7 @@ class ONNXInferenceService {
         console.warn('[ONNX Service] Using fallback scalers:', e);
       }
 
+      // 2. Load Stage 1 Motion Classifier (MLP)
       try {
         const clsRes = await fetch(`${modelsBasePath}/motion_classifier.onnx`);
         if (clsRes.ok) {
@@ -63,6 +65,7 @@ class ONNXInferenceService {
         console.warn('[ONNX Service] Classifier loading error:', err);
       }
 
+      // 3. Load Stage 2 Acceleration Transformer
       try {
         const transformerRes = await fetch(`${modelsBasePath}/tlio_transformer.onnx`);
         if (transformerRes.ok) {
@@ -101,20 +104,20 @@ class ONNXInferenceService {
     return norm;
   }
 
-  denormalizeAcceleration(rawAcc) {
+  denormalizeAcceleration(rawOutput) {
     const mean = this.scalers.targets.mean;
     const std = this.scalers.targets.std;
     const out = new Float32Array(2);
     for (let i = 0; i < 2; i++) {
-      out[i] = rawAcc[i] * (std[i] || 1.0) + mean[i];
+      out[i] = rawOutput[i] * (std[i] || 1.0) + mean[i];
     }
     return out;
   }
 
   /**
-   * Runs 2-Stage Kinematic Acceleration Inference
+   * Runs 2-Stage Gated Acceleration Inference
    * @param {Array<Array<number>>} rawWindow - 10 consecutive 6-axis IMU samples [10, 6]
-   * @returns {Promise<{isMoving: boolean, dvLat: number, dvFwd: number, latencyMs: number}>}
+   * @returns {Promise<{isMoving: boolean, aFwd: number, latencyMs: number}>}
    */
   async predict1sAcceleration(rawWindow) {
     const t0 = performance.now();
@@ -130,8 +133,7 @@ class ONNXInferenceService {
     }
 
     let isMoving = true;
-    let dvLat = 0.0;
-    let dvFwd = 0.0;
+    let aFwd = 0.0;
 
     try {
       const inputTensor = new ort.Tensor('float32', flatNormWindow, [1, windowSize, 6]);
@@ -144,17 +146,15 @@ class ONNXInferenceService {
         isMoving = logits[1] > logits[0];
       }
 
-      // STAGE 2: If MOVING -> Predict Net Acceleration (dv)
+      // STAGE 2: If MOVING -> Predict Forward Acceleration dv/dt; If REST -> a = 0.0
       if (isMoving && this.sessionTransformer) {
         const feeds = { input_window: inputTensor };
         const results = await this.sessionTransformer.run(feeds);
         const outData = results.displacement_1s.data;
         const denorm = this.denormalizeAcceleration([outData[0], outData[1]]);
-        dvLat = denorm[0];
-        dvFwd = denorm[1];
+        aFwd = denorm[1]; // Net forward acceleration in m/s²
       } else {
-        dvLat = 0.0;
-        dvFwd = 0.0;
+        aFwd = 0.0;
       }
     } catch (err) {
       console.warn('[ONNX Service] Inference error:', err);
@@ -163,8 +163,7 @@ class ONNXInferenceService {
     const latencyMs = Math.max(0.01, performance.now() - t0);
     return {
       isMoving,
-      dvLat,
-      dvFwd,
+      aFwd,
       latencyMs
     };
   }

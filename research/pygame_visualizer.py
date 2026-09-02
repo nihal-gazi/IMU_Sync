@@ -1,7 +1,7 @@
 """
-Interactive Pygame Trajectory Visualizer for Kinematic Acceleration System
-Stage 1: Rest vs Moving Classifier (MLP)
-Stage 2: 1-Second Net Acceleration (dv) Transformer + Kinematic Velocity Integration
+Interactive Pygame Trajectory Visualizer for 2-Stage Kinematic Acceleration System
+Stage 1: Rest vs Moving Classifier (MLP Zero-Velocity Detector)
+Stage 2: Acceleration (Δv) Transformer + Kinematic Velocity Integration + 3D Heading Tracking
 """
 
 import os
@@ -105,9 +105,9 @@ def precompute_trajectory(dataset_key="S-S1", max_seconds=180):
 
     cur_pred_x = 0.0
     cur_pred_y = 0.0
-    cur_speed_mps = 0.0
+    cur_v_mps = float(speeds_mps[0])
 
-    print(f"[Pygame] Precomputing {n_seconds} seconds using Kinematic Acceleration System...")
+    print(f"[Pygame] Precomputing {n_seconds} seconds using 2-Stage Kinematic Acceleration System...")
     with torch.no_grad():
         for s in range(n_seconds):
             start = s * window_size
@@ -119,26 +119,21 @@ def precompute_trajectory(dataset_key="S-S1", max_seconds=180):
             logits = cls_model(tensor_x)
             is_moving = int(torch.argmax(logits, dim=1).item())
 
-            # STAGE 2: Acceleration Estimator + Kinematic Integration
+            # STAGE 2: Acceleration Prediction & Kinematic Velocity Integration
+            v_prev = cur_v_mps
             if is_moving == 1:
                 pred_norm = trans_model(tensor_x).numpy()[0]
                 disp = target_norm.inverse_transform(pred_norm)
-                dv_fwd = float(disp[1])
-                
-                prev_speed = cur_speed_mps
-                if prev_speed < 0.2:
-                    cur_speed_mps = max(1.0, prev_speed + dv_fwd + 1.2)
-                else:
-                    cur_speed_mps = max(0.2, prev_speed + dv_fwd)
-                    
-                fwd_disp = (prev_speed + cur_speed_mps) * 0.5
+                a_fwd = float(disp[1])
+                cur_v_mps = max(0.0, cur_v_mps + a_fwd)
                 m_state = "MOVING"
             else:
-                cur_speed_mps = 0.0
-                fwd_disp = 0.0
+                cur_v_mps = 0.0
                 m_state = "REST"
 
             motion_states.append(m_state)
+
+            fwd_disp = ((v_prev + cur_v_mps) / 2.0) * 1.0
 
             # 3D Vehicle Heading Tracking
             cur_phone_yaw = float(phone_yaws[end - 1])
@@ -155,7 +150,7 @@ def precompute_trajectory(dataset_key="S-S1", max_seconds=180):
             pred_steps.append([cur_pred_x, cur_pred_y])
             gt_steps.append([gt_x_all[end - 1], gt_y_all[end - 1]])
 
-            speeds_pred.append(cur_speed_mps * 3.6)
+            speeds_pred.append(cur_v_mps * 3.6)
             speeds_gt.append(float(np.mean(speeds_mps[start:end])) * 3.6)
 
     return {
@@ -170,7 +165,7 @@ def precompute_trajectory(dataset_key="S-S1", max_seconds=180):
 
 def run_pygame_visualizer(dataset_key="S-S1", max_seconds=180):
     pygame.init()
-    pygame.display.set_caption("IMU-Sync // Kinematic Acceleration Pygame Visualizer")
+    pygame.display.set_caption("IMU-Sync // 2-Stage Pygame Visualizer (Kinematic Acceleration + 3D Orientation)")
 
     WIDTH, HEIGHT = 1280, 720
     screen = pygame.display.set_mode((WIDTH, HEIGHT), pygame.RESIZABLE)
@@ -350,24 +345,24 @@ def run_pygame_visualizer(dataset_key="S-S1", max_seconds=180):
 
         pygame.draw.line(screen, (248, 81, 73, 160), gt_head, pred_head, 1)
 
-        hud_surface = pygame.Surface((390, 230), pygame.SRCALPHA)
+        hud_surface = pygame.Surface((400, 240), pygame.SRCALPHA)
         hud_surface.fill(CARD_BG)
-        pygame.draw.rect(hud_surface, (48, 54, 61), (0, 0, 390, 230), 1, border_radius=8)
+        pygame.draw.rect(hud_surface, (48, 54, 61), (0, 0, 400, 240), 1, border_radius=8)
 
         ate = math.hypot(cur_pred[0] - cur_gt[0], cur_pred[1] - cur_gt[1])
 
-        t_title = font_title.render("IMU-SYNC // KINEMATIC TRAJECTORY EVAL", True, CYAN)
+        t_title = font_title.render("IMU-SYNC // KINEMATIC ACCELERATION", True, CYAN)
         hud_surface.blit(t_title, (12, 10))
 
         lines = [
             (f"TIME: {int(current_time_sec):03d}s / {n_seconds:03d}s  |  SPEED: {playback_speed:.0f}x", WHITE),
-            (f"STAGE 1 MOTION: [{cur_state}] (Kinematic dv)", GREEN if cur_state == 'MOVING' else AMBER),
-            (f"GROUND TRUTH:   ({cur_gt[0]:.2f}m, {cur_gt[1]:.2f}m) @ {cur_spd_gt:.1f} km/h", GREEN),
-            (f"TRANSFORMER:    ({cur_pred[0]:.2f}m, {cur_pred[1]:.2f}m) @ {cur_spd_pred:.1f} km/h", CYAN),
-            (f"DRIFT ATE:      {ate:.2f} meters", RED if ate > 10 else AMBER),
-            (f"CAMERA:         Zoom {zoom:.1f}px/m  |  Auto-Follow: {'ON' if auto_follow else 'OFF'}", MUTED),
-            (f"CONTROLS:       [SPACE] Play/Pause  [R] Restart  [C] Recenter", MUTED),
-            (f"                [1-4] Speed (1x, 2x, 5x, 10x)  [Drag] Pan", MUTED)
+            (f"MOTION STATE: [{cur_state}] (Zero-Velocity Gated)", GREEN if cur_state == 'MOVING' else AMBER),
+            (f"GROUND TRUTH: ({cur_gt[0]:.2f}m, {cur_gt[1]:.2f}m) @ {cur_spd_gt:.1f} km/h", GREEN),
+            (f"KINEMATIC AI: ({cur_pred[0]:.2f}m, {cur_pred[1]:.2f}m) @ {cur_spd_pred:.1f} km/h", CYAN),
+            (f"DRIFT ATE:    {ate:.2f} meters", RED if ate > 10 else AMBER),
+            (f"CAMERA:       Zoom {zoom:.1f}px/m  |  Auto-Follow: {'ON' if auto_follow else 'OFF'}", MUTED),
+            (f"CONTROLS:     [SPACE] Play/Pause  [R] Restart  [C] Recenter", MUTED),
+            (f"              [1-4] Speed (1x, 2x, 5x, 10x)  [Drag] Pan", MUTED)
         ]
 
         y_off = 35
@@ -401,7 +396,7 @@ def run_pygame_visualizer(dataset_key="S-S1", max_seconds=180):
 
 if __name__ == "__main__":
     import argparse
-    parser = argparse.ArgumentParser(description="Kinematic Acceleration Pygame Visualizer")
+    parser = argparse.ArgumentParser(description="2-Stage Pygame Kinematic Acceleration Visualizer")
     parser.add_argument("--dataset", type=str, default="S-S1", help="Dataset key (S-S1, S-S2, S-M)")
     parser.add_argument("--seconds", type=int, default=180, help="Number of seconds of driving to evaluate")
     args = parser.parse_args()

@@ -39,7 +39,7 @@
       0.33713310956954956
     ]
   },
+  "target_type": "ACCELERATION_DELTA_V",
   "window_size": 10,
-  "prediction_target": "ACCELERATION_DV_PER_SECOND",
   "canonical_frame": "SCREEN_FACING_UP"
 }

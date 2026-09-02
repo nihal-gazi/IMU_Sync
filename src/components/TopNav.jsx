@@ -1,5 +1,5 @@
 import React from 'react';
-import { Compass, Trash2, Rotate3D, Gauge } from 'lucide-react';
+import { Compass, Trash2, Rotate3D, Activity } from 'lucide-react';
 
 export default function TopNav({
   modelMode,
@@ -8,12 +8,12 @@ export default function TopNav({
   vx,
   vy,
   speedKmh,
+  aFwd,
   latencyMs,
   pitchDeg,
   rollDeg,
   headingDeg,
   isMoving,
-  accelerationMps2,
   isAlignEnabled,
   onToggleAlign,
   isONNXReady,
@@ -24,7 +24,7 @@ export default function TopNav({
 }) {
   const getEngineName = () => {
     if (!isONNXReady) return 'Loading WASM...';
-    if (modelMode === 'tlio') return 'Kinematic dv Transformer';
+    if (modelMode === 'tlio') return 'Kinematic Accel Transformer';
     if (modelMode === 'rnn') return 'ONNX SimpleRNN';
     return 'ONNX SimpleMLP';
   };
@@ -35,7 +35,7 @@ export default function TopNav({
         <div className="logo-dot"></div>
         <div className="brand-text">
           <span className="brand-title">IMU-SYNC</span>
-          <span className="brand-sub">v0.1.8 // KINEMATIC ACCELERATION TRANSFORMER</span>
+          <span className="brand-sub">v0.1.8 // 2-STAGE KINEMATIC ACCEL + GYRO</span>
         </div>
       </div>
 
@@ -60,17 +60,11 @@ export default function TopNav({
           </span>
         </div>
         <div className="hud-item">
-          <span className="hud-label">ACCEL (dv/dt)</span>
-          <span className="hud-val highlight-amber">
-            {(accelerationMps2 || 0) >= 0 ? '+' : ''}{(accelerationMps2 || 0).toFixed(2)} m/s²
-          </span>
-        </div>
-        <div className="hud-item">
           <span className="hud-label">POS (Px, Py)</span>
           <span className="hud-val highlight-cyan">{(posX || 0).toFixed(2)}m, {(posY || 0).toFixed(2)}m</span>
         </div>
         <div className="hud-item">
-          <span className="hud-label">HEADING (Yaw)</span>
+          <span className="hud-label">HEADING</span>
           <span className="hud-val" style={{ color: 'var(--accent-green)' }}>
             {(headingDeg || 0).toFixed(1)}°
           </span>
@@ -78,6 +72,12 @@ export default function TopNav({
         <div className="hud-item">
           <span className="hud-label">SPEED</span>
           <span className="hud-val">{(speedKmh || 0).toFixed(1)} km/h</span>
+        </div>
+        <div className="hud-item">
+          <span className="hud-label">ACCEL (afwd)</span>
+          <span className="hud-val" style={{ color: (aFwd || 0) >= 0 ? 'var(--accent-cyan)' : 'var(--accent-amber)' }}>
+            {(aFwd || 0).toFixed(2)} m/s²
+          </span>
         </div>
         <div className="hud-item">
           <span className="hud-label">LATENCY</span>
