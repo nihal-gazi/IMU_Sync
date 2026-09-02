@@ -4,6 +4,7 @@ import InfiniteCanvas from './components/InfiniteCanvas';
 import BottomPanel from './components/BottomPanel';
 import { onnxInferenceService } from './services/onnxInference';
 import { orientationAligner } from './services/orientationAligner';
+import { ekfFilterService, classicalMathService } from './services/kalmanFilterService';
 
 export default function App() {
   const [isONNXReady, setIsONNXReady] = useState(false);
@@ -101,7 +102,9 @@ export default function App() {
   const simGzRef = useRef(0);
   const demoModeRef = useRef(null);
   const datasetFramesRef = useRef([]);
+  const modelModeRef = useRef('tlio');
 
+  useEffect(() => { modelModeRef.current = modelMode; }, [modelMode]);
   useEffect(() => { replayIndexRef.current = replayIndex; }, [replayIndex]);
   useEffect(() => { isPlayingRef.current = isPlaying; }, [isPlaying]);
   useEffect(() => { speedMultRef.current = speedMultiplier; }, [speedMultiplier]);
@@ -244,81 +247,184 @@ export default function App() {
       gyr[1].push(gy); gyr[1].shift();
       gyr[2].push(gz); gyr[2].shift();
 
-      // 4. Continuous Gyroscope Heading Integration
-      headingRadRef.current += gz * dt;
+      const curMode = modelModeRef.current;
 
-      // 5. Accumulate sliding 1-second continuous window
-      const win = windowBufferRef.current;
-      win.push(imu);
-      if (win.length > 10) win.shift();
-
-      timeSinceLast1sUpdateRef.current += dt;
-
-      // 6. Every 1.0 Second: Run 2-Stage Kinematic Acceleration Pipeline
-      if (timeSinceLast1sUpdateRef.current >= 1.0 && win.length >= 10) {
-        timeSinceLast1sUpdateRef.current = 0.0;
-        stepCountRef.current++;
-
-        // Stage 1 Classifier & Stage 2 Acceleration Estimator
-        const pred = await onnxInferenceService.predict1sAcceleration(win);
-        const vPrev = curSpeedMpsRef.current;
-
-        // Kinematic Speed Integration with Zero-Velocity (ZUPT) Gating
-        if (pred.isMoving) {
-          curSpeedMpsRef.current = Math.max(0.0, curSpeedMpsRef.current + pred.aFwd * 1.0);
-        } else {
-          curSpeedMpsRef.current = 0.0;
-        }
-
-        const curSpeedKmh = curSpeedMpsRef.current * 3.6;
-        const fwdDisp = ((vPrev + curSpeedMpsRef.current) / 2.0) * 1.0;
-
-        // Rotate Body Displacement into Global Coordinates using Integrated Heading
-        const heading = headingRadRef.current;
-        const dxWorld = fwdDisp * Math.sin(heading);
-        const dyWorld = fwdDisp * Math.cos(heading);
+      // =======================================================================
+      // MODE A: Extended Kalman Filter (EKF Mathematical Estimator)
+      // =======================================================================
+      if (curMode === 'ekf') {
+        const ekfOut = ekfFilterService.step(imu, dt);
+        headingRadRef.current = ekfOut.headingRad;
+        curSpeedMpsRef.current = ekfOut.speedMps;
 
         const motion = motionState.current;
-        motion.posX += dxWorld;
-        motion.posY += dyWorld;
-        motion.vx = dxWorld;
-        motion.vy = dyWorld;
-        motion.speed = fwdDisp;
-        motion.speedKmh = curSpeedKmh;
+        motion.posX = ekfOut.posX;
+        motion.posY = ekfOut.posY;
+        motion.vx = ekfOut.vx;
+        motion.vy = ekfOut.vy;
+        motion.speed = ekfOut.speedMps * dt;
+        motion.speedKmh = ekfOut.speedKmh;
 
-        // Append to trail
         const trail = trailRef.current;
         trail.push({ x: motion.posX, y: motion.posY, speed: motion.speedKmh });
         if (trail.length > 3000) trail.shift();
 
-        // Update Telemetry HUD
         setTelemetry({
           posX: motion.posX,
           posY: motion.posY,
-          vx: dxWorld,
-          vy: dyWorld,
-          speedKmh: curSpeedKmh,
-          aFwd: pred.aFwd,
-          latencyMs: pred.latencyMs,
-          pitchDeg: alignResult.pitchDeg,
-          rollDeg: alignResult.rollDeg,
-          headingDeg: ((heading * 180.0) / Math.PI) % 360,
-          isMoving: pred.isMoving
+          vx: ekfOut.vx,
+          vy: ekfOut.vy,
+          speedKmh: ekfOut.speedKmh,
+          aFwd: ekfOut.aFwd,
+          latencyMs: ekfOut.latencyMs,
+          pitchDeg: ekfOut.pitchDeg,
+          rollDeg: ekfOut.rollDeg,
+          headingDeg: ekfOut.headingDeg,
+          isMoving: ekfOut.isMoving
         });
 
         setTransformerMetrics({
-          lastPredDx: dxWorld,
-          lastPredDy: dyWorld,
-          aFwd: pred.aFwd,
-          fwdDispMeters: fwdDisp,
-          stepCount: stepCountRef.current,
+          lastPredDx: ekfOut.vx * dt,
+          lastPredDy: ekfOut.vy * dt,
+          aFwd: ekfOut.aFwd,
+          fwdDispMeters: ekfOut.speedMps * dt,
+          stepCount: stepCountRef.current++,
           lastUpdateSec: Math.round(performance.now() / 1000),
-          pitchDeg: alignResult.pitchDeg,
-          rollDeg: alignResult.rollDeg,
+          pitchDeg: ekfOut.pitchDeg,
+          rollDeg: ekfOut.rollDeg,
           rawGyr: alignResult.rawGyr || [0, 0, 0],
           alignedGyr: [gx, gy, gz],
-          isMoving: pred.isMoving
+          isMoving: ekfOut.isMoving
         });
+      }
+      // =======================================================================
+      // MODE B: Classical Math Dead-Reckoning (Physics Baseline)
+      // =======================================================================
+      else if (curMode === 'math') {
+        const mathOut = classicalMathService.step(imu, dt);
+        headingRadRef.current = mathOut.headingRad;
+        curSpeedMpsRef.current = mathOut.speedMps;
+
+        const motion = motionState.current;
+        motion.posX = mathOut.posX;
+        motion.posY = mathOut.posY;
+        motion.vx = mathOut.vx;
+        motion.vy = mathOut.vy;
+        motion.speed = mathOut.speedMps * dt;
+        motion.speedKmh = mathOut.speedKmh;
+
+        const trail = trailRef.current;
+        trail.push({ x: motion.posX, y: motion.posY, speed: motion.speedKmh });
+        if (trail.length > 3000) trail.shift();
+
+        setTelemetry({
+          posX: motion.posX,
+          posY: motion.posY,
+          vx: mathOut.vx,
+          vy: mathOut.vy,
+          speedKmh: mathOut.speedKmh,
+          aFwd: mathOut.aFwd,
+          latencyMs: mathOut.latencyMs,
+          pitchDeg: mathOut.pitchDeg,
+          rollDeg: mathOut.rollDeg,
+          headingDeg: mathOut.headingDeg,
+          isMoving: mathOut.isMoving
+        });
+
+        setTransformerMetrics({
+          lastPredDx: mathOut.vx * dt,
+          lastPredDy: mathOut.vy * dt,
+          aFwd: mathOut.aFwd,
+          fwdDispMeters: mathOut.speedMps * dt,
+          stepCount: stepCountRef.current++,
+          lastUpdateSec: Math.round(performance.now() / 1000),
+          pitchDeg: mathOut.pitchDeg,
+          rollDeg: mathOut.rollDeg,
+          rawGyr: alignResult.rawGyr || [0, 0, 0],
+          alignedGyr: [gx, gy, gz],
+          isMoving: mathOut.isMoving
+        });
+      }
+      // =======================================================================
+      // MODE C: 100Hz Neural Transformer & AI Pipeline (TLIO / RNN / MLP)
+      // =======================================================================
+      else {
+        // Continuous Gyroscope Heading Integration
+        headingRadRef.current += gz * dt;
+
+        // Accumulate sliding 1-second continuous window
+        const win = windowBufferRef.current;
+        win.push(imu);
+        if (win.length > 10) win.shift();
+
+        timeSinceLast1sUpdateRef.current += dt;
+
+        // Every 1.0 Second: Run 2-Stage Kinematic Acceleration Pipeline
+        if (timeSinceLast1sUpdateRef.current >= 1.0 && win.length >= 10) {
+          timeSinceLast1sUpdateRef.current = 0.0;
+          stepCountRef.current++;
+
+          // Stage 1 Classifier & Stage 2 Acceleration Estimator
+          const pred = await onnxInferenceService.predict1sAcceleration(win);
+          const vPrev = curSpeedMpsRef.current;
+
+          // Kinematic Speed Integration with Zero-Velocity (ZUPT) Gating
+          if (pred.isMoving) {
+            curSpeedMpsRef.current = Math.max(0.0, curSpeedMpsRef.current + pred.aFwd * 1.0);
+          } else {
+            curSpeedMpsRef.current = 0.0;
+          }
+
+          const curSpeedKmh = curSpeedMpsRef.current * 3.6;
+          const fwdDisp = ((vPrev + curSpeedMpsRef.current) / 2.0) * 1.0;
+
+          // Rotate Body Displacement into Global Coordinates using Integrated Heading
+          const heading = headingRadRef.current;
+          const dxWorld = fwdDisp * Math.sin(heading);
+          const dyWorld = fwdDisp * Math.cos(heading);
+
+          const motion = motionState.current;
+          motion.posX += dxWorld;
+          motion.posY += dyWorld;
+          motion.vx = dxWorld;
+          motion.vy = dyWorld;
+          motion.speed = fwdDisp;
+          motion.speedKmh = curSpeedKmh;
+
+          // Append to trail
+          const trail = trailRef.current;
+          trail.push({ x: motion.posX, y: motion.posY, speed: motion.speedKmh });
+          if (trail.length > 3000) trail.shift();
+
+          // Update Telemetry HUD
+          setTelemetry({
+            posX: motion.posX,
+            posY: motion.posY,
+            vx: dxWorld,
+            vy: dyWorld,
+            speedKmh: curSpeedKmh,
+            aFwd: pred.aFwd,
+            latencyMs: pred.latencyMs,
+            pitchDeg: alignResult.pitchDeg,
+            rollDeg: alignResult.rollDeg,
+            headingDeg: ((heading * 180.0) / Math.PI) % 360,
+            isMoving: pred.isMoving
+          });
+
+          setTransformerMetrics({
+            lastPredDx: dxWorld,
+            lastPredDy: dyWorld,
+            aFwd: pred.aFwd,
+            fwdDispMeters: fwdDisp,
+            stepCount: stepCountRef.current,
+            lastUpdateSec: Math.round(performance.now() / 1000),
+            pitchDeg: alignResult.pitchDeg,
+            rollDeg: alignResult.rollDeg,
+            rawGyr: alignResult.rawGyr || [0, 0, 0],
+            alignedGyr: [gx, gy, gz],
+            isMoving: pred.isMoving
+          });
+        }
       }
 
       animId = requestAnimationFrame(tick);
@@ -353,6 +459,8 @@ export default function App() {
     headingRadRef.current = 0.0;
     stepCountRef.current = 0;
     orientationAligner.reset();
+    ekfFilterService.reset(0.0);
+    classicalMathService.reset(0.0);
     if (recenterRef.current) recenterRef.current();
   };
 

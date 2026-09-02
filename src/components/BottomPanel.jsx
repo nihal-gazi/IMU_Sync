@@ -79,13 +79,27 @@ export default function BottomPanel({
         <div className="tab-actions">
           {/* Architecture Selector Pill */}
           <div className="model-pill-selector">
-            <span className="pill-label">Model:</span>
+            <span className="pill-label">Mode:</span>
             <button
               className={`pill-btn ${modelMode === 'tlio' ? 'active' : ''}`}
               onClick={() => setModelMode('tlio')}
-              title="TLIO: 1-Second Transformer"
+              title="100Hz Neural Transformer Kinematic System (Exp 1)"
             >
-              Transformer (1s)
+              Transformer
+            </button>
+            <button
+              className={`pill-btn ${modelMode === 'ekf' ? 'active' : ''}`}
+              onClick={() => setModelMode('ekf')}
+              title="Extended Kalman Filter with ZUPT and Non-Holonomic Constraint"
+            >
+              EKF (Math)
+            </button>
+            <button
+              className={`pill-btn ${modelMode === 'math' ? 'active' : ''}`}
+              onClick={() => setModelMode('math')}
+              title="Pure Classical Dead-Reckoning Math"
+            >
+              Physics DR
             </button>
             <button
               className={`pill-btn ${modelMode === 'rnn' ? 'active' : ''}`}
@@ -93,13 +107,6 @@ export default function BottomPanel({
               title="Sequential Step RNN"
             >
               RNN
-            </button>
-            <button
-              className={`pill-btn ${modelMode === 'mlp' ? 'active' : ''}`}
-              onClick={() => setModelMode('mlp')}
-              title="Stateless Frame MLP"
-            >
-              MLP
             </button>
           </div>
 

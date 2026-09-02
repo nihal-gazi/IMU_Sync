@@ -23,8 +23,10 @@ export default function TopNav({
   onClearTrail
 }) {
   const getEngineName = () => {
+    if (modelMode === 'ekf') return 'Extended Kalman Filter (EKF)';
+    if (modelMode === 'math') return 'Classical Math (Physics DR)';
     if (!isONNXReady) return 'Loading WASM...';
-    if (modelMode === 'tlio') return 'Kinematic Accel Transformer';
+    if (modelMode === 'tlio') return '100Hz Transformer (Exp 1)';
     if (modelMode === 'rnn') return 'ONNX SimpleRNN';
     return 'ONNX SimpleMLP';
   };
