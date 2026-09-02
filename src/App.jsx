@@ -3,7 +3,6 @@ import TopNav from './components/TopNav';
 import InfiniteCanvas from './components/InfiniteCanvas';
 import BottomPanel from './components/BottomPanel';
 import { onnxInferenceService } from './services/onnxInference';
-import { tlioEKFEngine } from './services/tlioEKF';
 
 export default function App() {
   const [isONNXReady, setIsONNXReady] = useState(false);
@@ -25,17 +24,15 @@ export default function App() {
     vx: 0,
     vy: 0,
     speedKmh: 0,
-    latencyMs: 0.4
+    latencyMs: 0.35
   });
 
-  // EKF Metrics State
-  const [ekfMetrics, setEkfMetrics] = useState({
+  // 1-Second Transformer Metrics State
+  const [transformerMetrics, setTransformerMetrics] = useState({
     lastPredDx: 0,
     lastPredDy: 0,
-    lastDeltaPx: 0,
-    lastDeltaPy: 0,
-    kalmanGain: 0.67,
-    correctionCount: 0
+    stepCount: 0,
+    lastUpdateSec: 0
   });
 
   // Simulator & Mobile State
@@ -45,18 +42,17 @@ export default function App() {
   const [mobileSensorStatus, setMobileSensorStatus] = useState('Active (Listening)');
   const [scalers, setScalers] = useState(onnxInferenceService.scalers);
 
-  // High-frequency mutable motion state for 60fps canvas renderer
+  // Mutable motion state for canvas renderer
   const motionState = useRef({
     posX: 0,
     posY: 0,
     vx: 0,
     vy: 0,
     speed: 0,
-    speedKmh: 0,
-    headingRad: 0
+    speedKmh: 0
   });
 
-  const trailRef = useRef([]);
+  const trailRef = useRef([{ x: 0, y: 0, speed: 0 }]);
   const hiddenStateRef = useRef(new Float32Array(32));
   const recenterRef = useRef(null);
 
@@ -76,6 +72,7 @@ export default function App() {
   // 1-Second Sliding Window Buffer (10 samples @ 10Hz)
   const windowBufferRef = useRef([]);
   const timeSinceLast1sUpdateRef = useRef(0.0);
+  const stepCountRef = useRef(0);
 
   const currentImuRef = useRef([0, 0, 9.81, 0, 0, 0]);
   const phoneImuRef = useRef([0, 0, 9.81, 0, 0, 0]);
@@ -122,7 +119,7 @@ export default function App() {
   // Initialize ONNX Runtime Web, Datasets & Phone Sensors
   useEffect(() => {
     async function setup() {
-      console.log('[IMU-Sync] Initializing TLIO Transformer ONNX Runtime Web v0.1.0...');
+      console.log('[IMU-Sync] Initializing 1-Second IMU-Transformer v0.1.2...');
       const ready = await onnxInferenceService.init('/models');
       setIsONNXReady(ready);
       setScalers(onnxInferenceService.scalers);
@@ -148,10 +145,9 @@ export default function App() {
     onnxInferenceService.setMode(modelMode);
   }, [modelMode]);
 
-  // Main 60 FPS Telemetry, High-Frequency Kinematic Propagation & 1-Second EKF Correction Loop
+  // Main Telemetry & 1-Second Transformer Execution Loop
   useEffect(() => {
     let animId;
-    let hudCounter = 0;
 
     const tick = async () => {
       const now = performance.now();
@@ -219,7 +215,7 @@ export default function App() {
 
       currentImuRef.current = imu;
 
-      // 2. Push sample to Oscilloscope circular buffers
+      // 2. Stream Live Oscilloscope buffers (at 60 FPS)
       const [ax, ay, az, gx, gy, gz] = imu;
       const acc = accelDataRef.current;
       acc[0].push(ax); acc[0].shift();
@@ -231,63 +227,50 @@ export default function App() {
       gyr[1].push(gy); gyr[1].shift();
       gyr[2].push(gz); gyr[2].shift();
 
-      // 3. High-Frequency Strapdown Kinematic Propagation (Every Frame)
-      const kin = tlioEKFEngine.predictKinematicStep(imu, dt);
-
-      // Append to 1-second sliding window buffer (10 samples @ 10Hz)
+      // 3. Accumulate sliding 1-second continuous window (10 samples)
       const win = windowBufferRef.current;
       win.push(imu);
       if (win.length > 10) win.shift();
 
       timeSinceLast1sUpdateRef.current += dt;
-      let lastLatency = 0.4;
 
-      // 4. TLIO: Every 1.0 Second (1000ms), Execute Transformer & Apply EKF Measurement Correction
+      // 4. Update Position ONLY Every Single Second (1.0s) using the Transformer
       if (timeSinceLast1sUpdateRef.current >= 1.0 && win.length >= 10) {
         timeSinceLast1sUpdateRef.current = 0.0;
+        stepCountRef.current++;
 
-        // Run ONNX Transformer on 1-second window
+        // Execute Transformer ONNX Inference on 1-second window
         const pred = await onnxInferenceService.predict1sDisplacement(win);
-        lastLatency = pred.latencyMs;
 
-        // Apply EKF Correction
-        const corr = tlioEKFEngine.applyTransformerCorrection(pred.dx, pred.dy);
+        // Update Particle Position Directly: px = px + Δx, py = py + Δy
+        const motion = motionState.current;
+        motion.posX += pred.dx;
+        motion.posY += pred.dy;
+        motion.vx = pred.dx; // 1-second velocity
+        motion.vy = pred.dy;
+        motion.speed = Math.hypot(pred.dx, pred.dy);
+        motion.speedKmh = motion.speed * 3.6;
 
-        setEkfMetrics({
-          lastPredDx: pred.dx,
-          lastPredDy: pred.dy,
-          lastDeltaPx: corr.deltaPosX,
-          lastDeltaPy: corr.deltaPosY,
-          kalmanGain: corr.kalmanGainPos,
-          correctionCount: corr.correctionCount
-        });
-      }
+        // Append discrete 1-second step to trajectory trail
+        const trail = trailRef.current;
+        trail.push({ x: motion.posX, y: motion.posY, speed: motion.speedKmh });
+        if (trail.length > 3000) trail.shift();
 
-      // 5. Update Motion State for Canvas Renderer
-      const motion = motionState.current;
-      motion.posX = tlioEKFEngine.posX;
-      motion.posY = tlioEKFEngine.posY;
-      motion.vx = tlioEKFEngine.vx;
-      motion.vy = tlioEKFEngine.vy;
-      motion.speed = Math.hypot(tlioEKFEngine.vx, tlioEKFEngine.vy);
-      motion.speedKmh = motion.speed * 3.6;
-      motion.headingRad = tlioEKFEngine.headingRad;
-
-      // 6. Append to Path Trail
-      const trail = trailRef.current;
-      trail.push({ x: motion.posX, y: motion.posY, speed: motion.speedKmh });
-      if (trail.length > 3000) trail.shift();
-
-      // 7. Update HUD Telemetry
-      hudCounter++;
-      if (hudCounter % 4 === 0) {
+        // Update HUD Telemetry
         setTelemetry({
           posX: motion.posX,
           posY: motion.posY,
           vx: motion.vx,
           vy: motion.vy,
           speedKmh: motion.speedKmh,
-          latencyMs: lastLatency
+          latencyMs: pred.latencyMs
+        });
+
+        setTransformerMetrics({
+          lastPredDx: pred.dx,
+          lastPredDy: pred.dy,
+          stepCount: stepCountRef.current,
+          lastUpdateSec: Math.round(performance.now() / 1000)
         });
       }
 
@@ -312,13 +295,15 @@ export default function App() {
   };
 
   const handleClearTrail = () => {
-    trailRef.current = [];
-    tlioEKFEngine.reset();
+    trailRef.current = [{ x: 0, y: 0, speed: 0 }];
     const motion = motionState.current;
     motion.posX = 0;
     motion.posY = 0;
     motion.vx = 0;
     motion.vy = 0;
+    motion.speed = 0;
+    motion.speedKmh = 0;
+    stepCountRef.current = 0;
     if (recenterRef.current) recenterRef.current();
   };
 
@@ -351,7 +336,7 @@ export default function App() {
 
   return (
     <div className="app-container">
-      {/* Top Telemetry Navigation with v0.1.0 */}
+      {/* Top Telemetry Navigation with v0.1.2 */}
       <TopNav
         modelMode={modelMode}
         posX={telemetry.posX}
@@ -388,7 +373,7 @@ export default function App() {
         motionState={motionState}
         hiddenStateRef={hiddenStateRef}
         scalers={scalers}
-        ekfMetrics={ekfMetrics}
+        ekfMetrics={transformerMetrics}
         isONNXReady={isONNXReady}
         isPlaying={isPlaying}
         setIsPlaying={setIsPlaying}

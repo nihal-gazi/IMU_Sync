@@ -17,7 +17,7 @@ export default function TopNav({
 }) {
   const getEngineName = () => {
     if (!isONNXReady) return 'Loading WASM...';
-    if (modelMode === 'tlio') return 'TLIO Transformer (1s EKF)';
+    if (modelMode === 'tlio') return 'IMU-Transformer (1s Window)';
     if (modelMode === 'rnn') return 'ONNX SimpleRNN';
     return 'ONNX SimpleMLP';
   };
@@ -28,7 +28,7 @@ export default function TopNav({
         <div className="logo-dot"></div>
         <div className="brand-text">
           <span className="brand-title">IMU-SYNC</span>
-          <span className="brand-sub">v0.1.1 // TLIO TRANSFORMER + EKF</span>
+          <span className="brand-sub">v0.1.2 // 1-SEC IMU-TRANSFORMER</span>
         </div>
       </div>
 
@@ -45,8 +45,8 @@ export default function TopNav({
           <span className="hud-val highlight-cyan">{(posX || 0).toFixed(2)}m, {(posY || 0).toFixed(2)}m</span>
         </div>
         <div className="hud-item">
-          <span className="hud-label">VELOCITY (Vx, Vy)</span>
-          <span className="hud-val">{(vx || 0).toFixed(2)}, {(vy || 0).toFixed(2)} m/s</span>
+          <span className="hud-label">1s DISPLACEMENT (Δx, Δy)</span>
+          <span className="hud-val">{(vx || 0).toFixed(2)}, {(vy || 0).toFixed(2)} m</span>
         </div>
         <div className="hud-item">
           <span className="hud-label">SPEED</span>

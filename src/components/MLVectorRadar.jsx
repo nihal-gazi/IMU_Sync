@@ -148,15 +148,11 @@ export default function MLVectorRadar({
   }, [motionState]);
 
   const motion = motionState?.current || { posX: 0, posY: 0, vx: 0, vy: 0, speed: 0, speedKmh: 0 };
-  const hidden = hiddenStateRef?.current || new Float32Array(32);
-  const ekf = ekfMetrics || {
+  const metrics = ekfMetrics || {
     lastPredDx: 0,
     lastPredDy: 0,
-    lastDeltaPx: 0,
-    lastDeltaPy: 0,
-    kalmanGain: 0.67,
-    correctionCount: 0,
-    timeSinceSec: 0.1
+    stepCount: 0,
+    lastUpdateSec: 0
   };
 
   const featScalers = scalers?.features || {
@@ -177,7 +173,7 @@ export default function MLVectorRadar({
       <div className="ml-card">
         <div className="radar-header">
           <span className="card-title">PARTICLE VECTOR // POINTING TOWARDS (Px, Py)</span>
-          <span className="badge">{isONNXReady ? 'TLIO TRANSFORMER ACTIVE' : 'INITIALIZING'}</span>
+          <span className="badge">{isONNXReady ? '1s TRANSFORMER LIVE' : 'INITIALIZING'}</span>
         </div>
         <div className="radar-body">
           <div className="radar-canvas-box">
@@ -192,43 +188,43 @@ export default function MLVectorRadar({
               <span className="r-sub">Default North at origin (0, 0)</span>
             </div>
             <div className="readout-box">
-              <span className="r-label">KINEMATIC VELOCITY (Vx, Vy)</span>
+              <span className="r-label">1-SECOND TRANSFORMER STEP (Δx, Δy)</span>
               <span className="r-val highlight-amber">
-                Vx: {(motion.vx || 0).toFixed(2)}, Vy: {(motion.vy || 0).toFixed(2)} m/s
+                Δx: {(motion.vx || 0).toFixed(2)}m, Δy: {(motion.vy || 0).toFixed(2)}m
               </span>
               <span className="r-sub">Speed: {(motion.speedKmh || 0).toFixed(1)} km/h</span>
             </div>
             <div className="readout-box">
-              <span className="r-label">TLIO SYSTEM MODE</span>
-              <span className="r-val">High-Freq Kinematics + 1s Transformer EKF</span>
-              <span className="r-sub">Tight-coupling drift elimination</span>
+              <span className="r-label">MOTION UPDATE CYCLE</span>
+              <span className="r-val">Every 1.0s: Px += Δx_1s, Py += Δy_1s</span>
+              <span className="r-sub">Multi-Head Self-Attention on 10 IMU samples</span>
             </div>
           </div>
         </div>
       </div>
 
-      {/* 2. 1-Second TLIO Transformer & EKF Correction Metrics */}
+      {/* 2. 1-Second IMU-Transformer Status & Normalization Factors */}
       <div className="ml-card">
         <div className="radar-header">
-          <span className="card-title">1-SEC TRANSFORMER & EKF CORRECTION STATUS</span>
-          <span className="state-meta">EKF Updates: #{ekf.correctionCount || 0}</span>
+          <span className="card-title">1-SEC TRANSFORMER METRICS & NORMALIZATION</span>
+          <span className="state-meta">1s Steps: #{metrics.stepCount || 0}</span>
         </div>
 
-        {/* EKF Telemetry Readout Grid */}
+        {/* Transformer Readout Grid */}
         <div className="ekf-telemetry-grid">
           <div className="readout-box">
-            <span className="r-label">1s TRANSFORMER DISPLACEMENT (Δx, Δy)</span>
+            <span className="r-label">LATEST 1s PREDICTED DISPLACEMENT</span>
             <span className="r-val highlight-cyan">
-              Δx: {(ekf.lastPredDx || 0).toFixed(2)}m, Δy: {(ekf.lastPredDy || 0).toFixed(2)}m
+              Δx: {(metrics.lastPredDx || 0).toFixed(2)}m, Δy: {(metrics.lastPredDy || 0).toFixed(2)}m
             </span>
-            <span className="r-sub">Regressed from 10-sample IMU attention window</span>
+            <span className="r-sub">Magnitude: {Math.hypot(metrics.lastPredDx || 0, metrics.lastPredDy || 0).toFixed(2)} m</span>
           </div>
           <div className="readout-box">
-            <span className="r-label">1s EKF CORRECTION DELTA (δPx, δPy)</span>
+            <span className="r-label">INFERENCE CADENCE</span>
             <span className="r-val highlight-amber">
-              δPx: {(ekf.lastDeltaPx >= 0 ? '+' : '') + (ekf.lastDeltaPx || 0).toFixed(3)}m, δPy: {(ekf.lastDeltaPy >= 0 ? '+' : '') + (ekf.lastDeltaPy || 0).toFixed(3)}m
+              1.0 Second (10 Frames)
             </span>
-            <span className="r-sub">Kalman Gain K_pos: {(ekf.kalmanGain || 0.67).toFixed(2)}</span>
+            <span className="r-sub">Pure Transformer Execution</span>
           </div>
         </div>
 
