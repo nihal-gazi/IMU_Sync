@@ -11,6 +11,7 @@ export default function TopNav({
   latencyMs,
   pitchDeg,
   rollDeg,
+  headingDeg,
   isAlignEnabled,
   onToggleAlign,
   isONNXReady,
@@ -21,7 +22,7 @@ export default function TopNav({
 }) {
   const getEngineName = () => {
     if (!isONNXReady) return 'Loading WASM...';
-    if (modelMode === 'tlio') return 'IMU-Transformer (1s)';
+    if (modelMode === 'tlio') return 'Body-Frame Transformer (1s)';
     if (modelMode === 'rnn') return 'ONNX SimpleRNN';
     return 'ONNX SimpleMLP';
   };
@@ -32,7 +33,7 @@ export default function TopNav({
         <div className="logo-dot"></div>
         <div className="brand-text">
           <span className="brand-title">IMU-SYNC</span>
-          <span className="brand-sub">v0.1.3 // 3D GRAVITY ALIGNED + TRANSFORMER</span>
+          <span className="brand-sub">v0.1.4 // BODY-FRAME TRANSFORMER + GYRO</span>
         </div>
       </div>
 
@@ -49,13 +50,13 @@ export default function TopNav({
           <span className="hud-val highlight-cyan">{(posX || 0).toFixed(2)}m, {(posY || 0).toFixed(2)}m</span>
         </div>
         <div className="hud-item">
-          <span className="hud-label">1s DISPLACEMENT</span>
+          <span className="hud-label">1s STEP (Δx, Δy)</span>
           <span className="hud-val">{(vx || 0).toFixed(2)}, {(vy || 0).toFixed(2)} m</span>
         </div>
         <div className="hud-item">
-          <span className="hud-label">3D TILT (Pitch, Roll)</span>
-          <span className="hud-val" style={{ color: 'var(--accent-amber)' }}>
-            {(pitchDeg >= 0 ? '+' : '') + (pitchDeg || 0).toFixed(1)}°, {(rollDeg >= 0 ? '+' : '') + (rollDeg || 0).toFixed(1)}°
+          <span className="hud-label">HEADING (Yaw)</span>
+          <span className="hud-val" style={{ color: 'var(--accent-green)' }}>
+            {(headingDeg || 0).toFixed(1)}°
           </span>
         </div>
         <div className="hud-item">

@@ -7,7 +7,7 @@ import { orientationAligner } from './services/orientationAligner';
 
 export default function App() {
   const [isONNXReady, setIsONNXReady] = useState(false);
-  const [modelMode, setModelMode] = useState('tlio'); // 'tlio' | 'rnn' | 'mlp'
+  const [modelMode, setModelMode] = useState('tlio');
   const [source, setSource] = useState('phone'); // 'phone' | 'replay' | 'sim'
   const [activeTab, setActiveTab] = useState('sensors');
   const [isCollapsed, setIsCollapsed] = useState(false);
@@ -28,7 +28,8 @@ export default function App() {
     speedKmh: 0,
     latencyMs: 0.35,
     pitchDeg: 0,
-    rollDeg: 0
+    rollDeg: 0,
+    headingDeg: 0
   });
 
   // 1-Second Transformer & Alignment Metrics State
@@ -60,11 +61,12 @@ export default function App() {
     speedKmh: 0
   });
 
+  const headingRadRef = useRef(0.0); // 0 = North (+Y)
   const trailRef = useRef([{ x: 0, y: 0, speed: 0 }]);
   const hiddenStateRef = useRef(new Float32Array(32));
   const recenterRef = useRef(null);
 
-  // 120-sample circular buffers for Oscilloscopes
+  // Circular buffers for Oscilloscopes
   const BUFFER_LEN = 120;
   const accelDataRef = useRef([
     new Array(BUFFER_LEN).fill(0),
@@ -128,7 +130,7 @@ export default function App() {
   // Initialize ONNX Runtime Web, Datasets & Phone Sensors
   useEffect(() => {
     async function setup() {
-      console.log('[IMU-Sync] Initializing 3D Gravity-Aligned IMU-Transformer v0.1.3...');
+      console.log('[IMU-Sync] Initializing Body-Frame IMU-Transformer v0.1.4...');
       const ready = await onnxInferenceService.init('/models');
       setIsONNXReady(ready);
       setScalers(onnxInferenceService.scalers);
@@ -154,7 +156,7 @@ export default function App() {
     onnxInferenceService.setMode(modelMode);
   }, [modelMode]);
 
-  // Main Telemetry, 3D Gravity Alignment & 1-Second Transformer Loop
+  // Main Telemetry, Gyro Heading Integration & 1-Second Transformer Loop
   useEffect(() => {
     let animId;
 
@@ -225,7 +227,6 @@ export default function App() {
       // 2. 3D Gravity Orientation Estimation & Sensor Alignment Preprocessing
       const alignResult = orientationAligner.alignIMU(rawImu, dt);
       const imu = alignResult.alignedImu;
-
       currentImuRef.current = imu;
 
       // 3. Stream Aligned Oscilloscope buffers (at 60 FPS)
@@ -240,29 +241,37 @@ export default function App() {
       gyr[1].push(gy); gyr[1].shift();
       gyr[2].push(gz); gyr[2].shift();
 
-      // 4. Accumulate sliding 1-second continuous window (10 samples @ 10Hz)
+      // 4. Integrate Continuous Yaw Heading from Gyroscope (Gz)
+      headingRadRef.current += gz * dt;
+
+      // 5. Accumulate sliding 1-second continuous window (10 samples @ 10Hz)
       const win = windowBufferRef.current;
       win.push(imu);
       if (win.length > 10) win.shift();
 
       timeSinceLast1sUpdateRef.current += dt;
 
-      // 5. Update Position ONLY Every Single Second (1.0s) using the Transformer
+      // 6. Every 1.0 Second: Run Transformer & Rotate Body-Frame Displacement into World Coordinates
       if (timeSinceLast1sUpdateRef.current >= 1.0 && win.length >= 10) {
         timeSinceLast1sUpdateRef.current = 0.0;
         stepCountRef.current++;
 
-        // Execute Transformer ONNX Inference on 1-second aligned window
+        // Execute Transformer to predict forward body displacement (meters)
         const pred = await onnxInferenceService.predict1sDisplacement(win);
+        const fwdDisp = pred.dyFwd;
 
-        // Update Particle Position Directly: px = px + Δx, py = py + Δy
+        // Rotate Body Displacement into Global Coordinates using Integrated Heading
+        const heading = headingRadRef.current;
+        const dxWorld = fwdDisp * Math.sin(heading);
+        const dyWorld = fwdDisp * Math.cos(heading);
+
         const motion = motionState.current;
-        motion.posX += pred.dx;
-        motion.posY += pred.dy;
-        motion.vx = pred.dx;
-        motion.vy = pred.dy;
-        motion.speed = Math.hypot(pred.dx, pred.dy);
-        motion.speedKmh = motion.speed * 3.6;
+        motion.posX += dxWorld;
+        motion.posY += dyWorld;
+        motion.vx = dxWorld;
+        motion.vy = dyWorld;
+        motion.speed = fwdDisp;
+        motion.speedKmh = pred.speedKmh;
 
         // Append 1-second step to trajectory trail
         const trail = trailRef.current;
@@ -273,17 +282,19 @@ export default function App() {
         setTelemetry({
           posX: motion.posX,
           posY: motion.posY,
-          vx: motion.vx,
-          vy: motion.vy,
+          vx: dxWorld,
+          vy: dyWorld,
           speedKmh: motion.speedKmh,
           latencyMs: pred.latencyMs,
           pitchDeg: alignResult.pitchDeg,
-          rollDeg: alignResult.rollDeg
+          rollDeg: alignResult.rollDeg,
+          headingDeg: ((heading * 180.0) / Math.PI) % 360
         });
 
         setTransformerMetrics({
-          lastPredDx: pred.dx,
-          lastPredDy: pred.dy,
+          lastPredDx: dxWorld,
+          lastPredDy: dyWorld,
+          fwdDispMeters: fwdDisp,
           stepCount: stepCountRef.current,
           lastUpdateSec: Math.round(performance.now() / 1000),
           pitchDeg: alignResult.pitchDeg,
@@ -322,6 +333,7 @@ export default function App() {
     motion.vy = 0;
     motion.speed = 0;
     motion.speedKmh = 0;
+    headingRadRef.current = 0.0;
     stepCountRef.current = 0;
     orientationAligner.reset();
     if (recenterRef.current) recenterRef.current();
@@ -356,7 +368,7 @@ export default function App() {
 
   return (
     <div className="app-container">
-      {/* Top Telemetry Navigation with v0.1.3 */}
+      {/* Top Telemetry Navigation with v0.1.4 */}
       <TopNav
         modelMode={modelMode}
         posX={telemetry.posX}
@@ -367,6 +379,7 @@ export default function App() {
         latencyMs={telemetry.latencyMs}
         pitchDeg={telemetry.pitchDeg}
         rollDeg={telemetry.rollDeg}
+        headingDeg={telemetry.headingDeg}
         isAlignEnabled={isAlignEnabled}
         onToggleAlign={() => setIsAlignEnabled(!isAlignEnabled)}
         isONNXReady={isONNXReady}

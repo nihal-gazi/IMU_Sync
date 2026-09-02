@@ -1,8 +1,6 @@
 /**
- * ONNX Runtime Web Inference Service for IMU-Sync & TLIO Transformer
- * Includes:
- * 1. IMUTransformerTLIO: 1-Second Sliding Window -> [dx_1s, dy_1s] Displacement Vector
- * 2. SimpleRNN / SimpleMLP baseline models
+ * ONNX Runtime Web Inference Service for Local Body-Frame IMU-Transformer
+ * Predicts local body-frame displacement [dx_lateral, dy_forward] from 1-second continuous IMU windows.
  */
 
 import * as ort from 'onnxruntime-web';
@@ -15,7 +13,6 @@ class ONNXInferenceService {
     this.isReady = false;
     this.mode = 'tlio'; // 'tlio' | 'rnn' | 'mlp'
 
-    // RNN Hidden state tensor (1 x 32)
     this.hiddenDim = 32;
     this.hiddenState = new Float32Array(this.hiddenDim);
 
@@ -27,9 +24,9 @@ class ONNXInferenceService {
         std: [0.954, 0.887, 1.214, 0.124, 0.098, 0.089]
       },
       targets: {
-        names: ['dx_1s', 'dy_1s'],
-        mean: [0.0002, -0.215],
-        std: [1.483, 1.852]
+        names: ['dx_lateral', 'dy_forward'],
+        mean: [0.0, 2.182],
+        std: [1.0, 1.477]
       }
     };
   }
@@ -46,7 +43,7 @@ class ONNXInferenceService {
           const scalerJson = await scalerRes.json();
           if (scalerJson.features && scalerJson.targets) {
             this.scalers = scalerJson;
-            console.log('[ONNX Service] TLIO Scaler parameters loaded.');
+            console.log('[ONNX Service] Local Body-Frame Scaler parameters loaded.');
           }
         }
       } catch (e) {
@@ -61,13 +58,13 @@ class ONNXInferenceService {
           this.sessionTransformer = await ort.InferenceSession.create(new Uint8Array(transBuffer), {
             executionProviders: ['wasm']
           });
-          console.log('[ONNX Service] TLIO IMU-Transformer ONNX session initialized.');
+          console.log('[ONNX Service] Body-Frame IMU-Transformer ONNX session initialized.');
         }
       } catch (err) {
-        console.warn('[ONNX Service] TLIO Transformer loading:', err);
+        console.warn('[ONNX Service] Transformer model loading:', err);
       }
 
-      // 3. Fetch and Load RNN Model
+      // 3. Load baseline models if available
       try {
         const rnnRes = await fetch(`${modelsBasePath}/rnn_model.onnx`);
         if (rnnRes.ok) {
@@ -75,25 +72,8 @@ class ONNXInferenceService {
           this.sessionRNN = await ort.InferenceSession.create(new Uint8Array(rnnBuffer), {
             executionProviders: ['wasm']
           });
-          console.log('[ONNX Service] SimpleRNN ONNX session initialized.');
         }
-      } catch (e) {
-        console.warn('[ONNX Service] RNN model loading:', e);
-      }
-
-      // 4. Fetch and Load MLP Model
-      try {
-        const mlpRes = await fetch(`${modelsBasePath}/mlp_model.onnx`);
-        if (mlpRes.ok) {
-          const mlpBuffer = await mlpRes.arrayBuffer();
-          this.sessionMLP = await ort.InferenceSession.create(new Uint8Array(mlpBuffer), {
-            executionProviders: ['wasm']
-          });
-          console.log('[ONNX Service] SimpleMLP ONNX session initialized.');
-        }
-      } catch (e) {
-        console.warn('[ONNX Service] MLP model loading:', e);
-      }
+      } catch (e) {}
 
       this.isReady = true;
       return true;
@@ -104,14 +84,9 @@ class ONNXInferenceService {
     }
   }
 
-  resetHiddenState() {
-    this.hiddenState.fill(0);
-  }
-
   setMode(mode) {
     if (mode === 'tlio' || mode === 'rnn' || mode === 'mlp') {
       this.mode = mode;
-      if (mode === 'rnn') this.resetHiddenState();
     }
   }
 
@@ -136,16 +111,15 @@ class ONNXInferenceService {
   }
 
   /**
-   * Runs 1-Second Window TLIO Transformer Inference
+   * Runs 1-Second Window Transformer Inference for Body-Frame Displacement
    * @param {Array<Array<number>>} rawWindow - 10 consecutive 6-axis IMU samples [10, 6]
-   * @returns {Promise<{dx: number, dy: number, latencyMs: number}>}
+   * @returns {Promise<{dxLat: number, dyFwd: number, speedKmh: number, latencyMs: number}>}
    */
   async predict1sDisplacement(rawWindow) {
     const t0 = performance.now();
     const windowSize = 10;
     const flatNormWindow = new Float32Array(windowSize * 6);
 
-    // Normalize each sample in the 1-second window
     for (let t = 0; t < windowSize; t++) {
       const sample = rawWindow[t] || [0, 0, 9.81, 0, 0, 0];
       const norm = this.normalizeSample(sample);
@@ -154,8 +128,8 @@ class ONNXInferenceService {
       }
     }
 
-    let predDx = 0.0;
-    let predDy = 0.0;
+    let dxLat = 0.0;
+    let dyFwd = 0.0;
 
     try {
       if (this.sessionTransformer) {
@@ -165,8 +139,8 @@ class ONNXInferenceService {
 
         const outData = results.displacement_1s.data;
         const denorm = this.denormalizeDisplacement([outData[0], outData[1]]);
-        predDx = denorm[0];
-        predDy = denorm[1];
+        dxLat = denorm[0];
+        dyFwd = Math.max(0.0, denorm[1]); // Forward distance traveled in 1 second
       }
     } catch (err) {
       console.warn('[ONNX Service] Transformer inference error:', err);
@@ -174,9 +148,9 @@ class ONNXInferenceService {
 
     const latencyMs = Math.max(0.01, performance.now() - t0);
     return {
-      dx: predDx,
-      dy: predDy,
-      magnitude: Math.hypot(predDx, predDy),
+      dxLat,
+      dyFwd,
+      speedKmh: dyFwd * 3.6,
       latencyMs
     };
   }
