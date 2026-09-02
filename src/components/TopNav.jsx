@@ -1,5 +1,5 @@
 import React from 'react';
-import { Compass, Trash2 } from 'lucide-react';
+import { Compass, Trash2, Rotate3D } from 'lucide-react';
 
 export default function TopNav({
   modelMode,
@@ -9,6 +9,10 @@ export default function TopNav({
   vy,
   speedKmh,
   latencyMs,
+  pitchDeg,
+  rollDeg,
+  isAlignEnabled,
+  onToggleAlign,
   isONNXReady,
   source,
   onToggleSource,
@@ -17,7 +21,7 @@ export default function TopNav({
 }) {
   const getEngineName = () => {
     if (!isONNXReady) return 'Loading WASM...';
-    if (modelMode === 'tlio') return 'IMU-Transformer (1s Window)';
+    if (modelMode === 'tlio') return 'IMU-Transformer (1s)';
     if (modelMode === 'rnn') return 'ONNX SimpleRNN';
     return 'ONNX SimpleMLP';
   };
@@ -28,7 +32,7 @@ export default function TopNav({
         <div className="logo-dot"></div>
         <div className="brand-text">
           <span className="brand-title">IMU-SYNC</span>
-          <span className="brand-sub">v0.1.2 // 1-SEC IMU-TRANSFORMER</span>
+          <span className="brand-sub">v0.1.3 // 3D GRAVITY ALIGNED + TRANSFORMER</span>
         </div>
       </div>
 
@@ -45,8 +49,14 @@ export default function TopNav({
           <span className="hud-val highlight-cyan">{(posX || 0).toFixed(2)}m, {(posY || 0).toFixed(2)}m</span>
         </div>
         <div className="hud-item">
-          <span className="hud-label">1s DISPLACEMENT (Δx, Δy)</span>
+          <span className="hud-label">1s DISPLACEMENT</span>
           <span className="hud-val">{(vx || 0).toFixed(2)}, {(vy || 0).toFixed(2)} m</span>
+        </div>
+        <div className="hud-item">
+          <span className="hud-label">3D TILT (Pitch, Roll)</span>
+          <span className="hud-val" style={{ color: 'var(--accent-amber)' }}>
+            {(pitchDeg >= 0 ? '+' : '') + (pitchDeg || 0).toFixed(1)}°, {(rollDeg >= 0 ? '+' : '') + (rollDeg || 0).toFixed(1)}°
+          </span>
         </div>
         <div className="hud-item">
           <span className="hud-label">SPEED</span>
@@ -60,6 +70,14 @@ export default function TopNav({
 
       {/* Actions */}
       <div className="header-actions">
+        <button
+          className={`btn ${isAlignEnabled ? 'btn-primary' : 'btn-outline'}`}
+          onClick={onToggleAlign}
+          title="Toggle 3D Gravity Frame Alignment"
+        >
+          <Rotate3D size={14} />
+          <span>3D Align: {isAlignEnabled ? 'ON' : 'OFF'}</span>
+        </button>
         <button className="btn btn-outline" onClick={onRecenter} title="Recenter Camera on Particle">
           <Compass size={14} />
           Recenter

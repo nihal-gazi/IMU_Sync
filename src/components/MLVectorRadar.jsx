@@ -5,6 +5,8 @@ export default function MLVectorRadar({
   hiddenStateRef,
   scalers,
   ekfMetrics,
+  isAlignEnabled,
+  onToggleAlign,
   modelMode,
   isONNXReady
 }) {
@@ -152,7 +154,11 @@ export default function MLVectorRadar({
     lastPredDx: 0,
     lastPredDy: 0,
     stepCount: 0,
-    lastUpdateSec: 0
+    lastUpdateSec: 0,
+    pitchDeg: 0,
+    rollDeg: 0,
+    rawGyr: [0, 0, 0],
+    alignedGyr: [0, 0, 0]
   };
 
   const featScalers = scalers?.features || {
@@ -173,7 +179,7 @@ export default function MLVectorRadar({
       <div className="ml-card">
         <div className="radar-header">
           <span className="card-title">PARTICLE VECTOR // POINTING TOWARDS (Px, Py)</span>
-          <span className="badge">{isONNXReady ? '1s TRANSFORMER LIVE' : 'INITIALIZING'}</span>
+          <span className="badge">{isONNXReady ? 'TRANSFORMER LIVE' : 'INITIALIZING'}</span>
         </div>
         <div className="radar-body">
           <div className="radar-canvas-box">
@@ -195,36 +201,38 @@ export default function MLVectorRadar({
               <span className="r-sub">Speed: {(motion.speedKmh || 0).toFixed(1)} km/h</span>
             </div>
             <div className="readout-box">
-              <span className="r-label">MOTION UPDATE CYCLE</span>
-              <span className="r-val">Every 1.0s: Px += Δx_1s, Py += Δy_1s</span>
-              <span className="r-sub">Multi-Head Self-Attention on 10 IMU samples</span>
+              <span className="r-label">3D TILT ORIENTATION</span>
+              <span className="r-val" style={{ color: 'var(--accent-green)' }}>
+                Pitch: {(metrics.pitchDeg >= 0 ? '+' : '') + (metrics.pitchDeg || 0).toFixed(1)}°, Roll: {(metrics.rollDeg >= 0 ? '+' : '') + (metrics.rollDeg || 0).toFixed(1)}°
+              </span>
+              <span className="r-sub">Rodrigues 3D Rotation Active: {isAlignEnabled ? 'YES' : 'NO'}</span>
             </div>
           </div>
         </div>
       </div>
 
-      {/* 2. 1-Second IMU-Transformer Status & Normalization Factors */}
+      {/* 2. 3D Gravity Alignment & Normalization Factors */}
       <div className="ml-card">
         <div className="radar-header">
-          <span className="card-title">1-SEC TRANSFORMER METRICS & NORMALIZATION</span>
+          <span className="card-title">3D GRAVITY ALIGNMENT & NORMALIZATION</span>
           <span className="state-meta">1s Steps: #{metrics.stepCount || 0}</span>
         </div>
 
-        {/* Transformer Readout Grid */}
+        {/* 3D Alignment Readout Grid */}
         <div className="ekf-telemetry-grid">
           <div className="readout-box">
-            <span className="r-label">LATEST 1s PREDICTED DISPLACEMENT</span>
-            <span className="r-val highlight-cyan">
-              Δx: {(metrics.lastPredDx || 0).toFixed(2)}m, Δy: {(metrics.lastPredDy || 0).toFixed(2)}m
+            <span className="r-label">RAW GYROSCOPE [Gx, Gy, Gz]</span>
+            <span className="r-val highlight-cyan" style={{ fontSize: '11px' }}>
+              {(metrics.rawGyr[0] || 0).toFixed(2)}, {(metrics.rawGyr[1] || 0).toFixed(2)}, {(metrics.rawGyr[2] || 0).toFixed(2)} rad/s
             </span>
-            <span className="r-sub">Magnitude: {Math.hypot(metrics.lastPredDx || 0, metrics.lastPredDy || 0).toFixed(2)} m</span>
+            <span className="r-sub">Raw phone body frame</span>
           </div>
           <div className="readout-box">
-            <span className="r-label">INFERENCE CADENCE</span>
-            <span className="r-val highlight-amber">
-              1.0 Second (10 Frames)
+            <span className="r-label">ALIGNED GYROSCOPE [Gx, Gy, Gz]</span>
+            <span className="r-val highlight-amber" style={{ fontSize: '11px' }}>
+              {(metrics.alignedGyr[0] || 0).toFixed(2)}, {(metrics.alignedGyr[1] || 0).toFixed(2)}, {(metrics.alignedGyr[2] || 0).toFixed(2)} rad/s
             </span>
-            <span className="r-sub">Pure Transformer Execution</span>
+            <span className="r-sub">Rotated into dataset dashboard frame</span>
           </div>
         </div>
 

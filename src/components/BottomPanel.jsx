@@ -19,6 +19,8 @@ export default function BottomPanel({
   hiddenStateRef,
   scalers,
   ekfMetrics,
+  isAlignEnabled,
+  onToggleAlign,
   isONNXReady,
   // Control Panel Props
   isPlaying,
@@ -63,7 +65,7 @@ export default function BottomPanel({
             onClick={() => { setActiveTab('ml'); setIsCollapsed(false); }}
           >
             <Radio size={15} />
-            TLIO & ML Vector State
+            3D Alignment & ML State
           </button>
           <button
             className={`tab-btn ${activeTab === 'controls' ? 'active' : ''}`}
@@ -81,9 +83,9 @@ export default function BottomPanel({
             <button
               className={`pill-btn ${modelMode === 'tlio' ? 'active' : ''}`}
               onClick={() => setModelMode('tlio')}
-              title="TLIO: 1-Second Transformer + High-Frequency EKF"
+              title="TLIO: 1-Second Transformer"
             >
-              TLIO (Transformer)
+              Transformer (1s)
             </button>
             <button
               className={`pill-btn ${modelMode === 'rnn' ? 'active' : ''}`}
@@ -129,6 +131,8 @@ export default function BottomPanel({
               hiddenStateRef={hiddenStateRef}
               scalers={scalers}
               ekfMetrics={ekfMetrics}
+              isAlignEnabled={isAlignEnabled}
+              onToggleAlign={onToggleAlign}
               modelMode={modelMode}
               isONNXReady={isONNXReady}
             />

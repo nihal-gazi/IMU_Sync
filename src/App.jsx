@@ -3,6 +3,7 @@ import TopNav from './components/TopNav';
 import InfiniteCanvas from './components/InfiniteCanvas';
 import BottomPanel from './components/BottomPanel';
 import { onnxInferenceService } from './services/onnxInference';
+import { orientationAligner } from './services/orientationAligner';
 
 export default function App() {
   const [isONNXReady, setIsONNXReady] = useState(false);
@@ -10,6 +11,7 @@ export default function App() {
   const [source, setSource] = useState('phone'); // 'phone' | 'replay' | 'sim'
   const [activeTab, setActiveTab] = useState('sensors');
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isAlignEnabled, setIsAlignEnabled] = useState(true);
 
   // Replay State
   const [isPlaying, setIsPlaying] = useState(true);
@@ -24,15 +26,21 @@ export default function App() {
     vx: 0,
     vy: 0,
     speedKmh: 0,
-    latencyMs: 0.35
+    latencyMs: 0.35,
+    pitchDeg: 0,
+    rollDeg: 0
   });
 
-  // 1-Second Transformer Metrics State
+  // 1-Second Transformer & Alignment Metrics State
   const [transformerMetrics, setTransformerMetrics] = useState({
     lastPredDx: 0,
     lastPredDy: 0,
     stepCount: 0,
-    lastUpdateSec: 0
+    lastUpdateSec: 0,
+    pitchDeg: 0,
+    rollDeg: 0,
+    rawGyr: [0, 0, 0],
+    alignedGyr: [0, 0, 0]
   });
 
   // Simulator & Mobile State
@@ -95,6 +103,7 @@ export default function App() {
   useEffect(() => { simGzRef.current = simGz; }, [simGz]);
   useEffect(() => { demoModeRef.current = demoMode; }, [demoMode]);
   useEffect(() => { datasetFramesRef.current = datasetFrames; }, [datasetFrames]);
+  useEffect(() => { orientationAligner.enabled = isAlignEnabled; }, [isAlignEnabled]);
 
   // Bind phone sensors immediately on startup
   const bindDeviceMotion = useCallback(() => {
@@ -119,7 +128,7 @@ export default function App() {
   // Initialize ONNX Runtime Web, Datasets & Phone Sensors
   useEffect(() => {
     async function setup() {
-      console.log('[IMU-Sync] Initializing 1-Second IMU-Transformer v0.1.2...');
+      console.log('[IMU-Sync] Initializing 3D Gravity-Aligned IMU-Transformer v0.1.3...');
       const ready = await onnxInferenceService.init('/models');
       setIsONNXReady(ready);
       setScalers(onnxInferenceService.scalers);
@@ -145,7 +154,7 @@ export default function App() {
     onnxInferenceService.setMode(modelMode);
   }, [modelMode]);
 
-  // Main Telemetry & 1-Second Transformer Execution Loop
+  // Main Telemetry, 3D Gravity Alignment & 1-Second Transformer Loop
   useEffect(() => {
     let animId;
 
@@ -155,13 +164,13 @@ export default function App() {
       lastTickTimeRef.current = now;
       if (dt <= 0 || dt > 0.5) dt = 0.1;
 
-      let imu = [0, 0, 9.81, 0, 0, 0];
+      let rawImu = [0, 0, 9.81, 0, 0, 0];
       const frames = datasetFramesRef.current;
       const curSource = sourceRef.current;
 
-      // 1. Determine Source
+      // 1. Read Raw IMU
       if (curSource === 'phone') {
-        imu = phoneImuRef.current;
+        rawImu = phoneImuRef.current;
       } else if (curSource === 'replay' && frames && frames.length > 0) {
         if (isPlayingRef.current) {
           replayIndexRef.current = (replayIndexRef.current + speedMultRef.current) % frames.length;
@@ -169,13 +178,13 @@ export default function App() {
         }
         const row = frames[replayIndexRef.current];
         if (row) {
-          imu = [row.ax, row.ay, row.az, row.gx, row.gy, row.gz];
+          rawImu = [row.ax, row.ay, row.az, row.gx, row.gy, row.gz];
         }
       } else if (curSource === 'sim') {
         const dMode = demoModeRef.current;
         if (dMode === 'circle') {
           demoTimeRef.current += dt;
-          imu = [
+          rawImu = [
             (Math.random() - 0.5) * 0.15,
             2.5 + (Math.random() - 0.5) * 0.2,
             9.81 + (Math.random() - 0.5) * 0.1,
@@ -186,7 +195,7 @@ export default function App() {
         } else if (dMode === 'fig8') {
           demoTimeRef.current += dt;
           const turnRate = Math.sin(demoTimeRef.current * 0.8) * 0.7;
-          imu = [
+          rawImu = [
             (Math.random() - 0.5) * 0.15,
             2.2 + (Math.random() - 0.5) * 0.2,
             9.81 + (Math.random() - 0.5) * 0.1,
@@ -202,7 +211,7 @@ export default function App() {
           const noiseGy = (Math.random() - 0.5) * 0.01;
           const noiseGz = (Math.random() - 0.5) * 0.015;
 
-          imu = [
+          rawImu = [
             noiseAx,
             simAyRef.current + noiseAy,
             9.81 + noiseAz,
@@ -213,9 +222,13 @@ export default function App() {
         }
       }
 
+      // 2. 3D Gravity Orientation Estimation & Sensor Alignment Preprocessing
+      const alignResult = orientationAligner.alignIMU(rawImu, dt);
+      const imu = alignResult.alignedImu;
+
       currentImuRef.current = imu;
 
-      // 2. Stream Live Oscilloscope buffers (at 60 FPS)
+      // 3. Stream Aligned Oscilloscope buffers (at 60 FPS)
       const [ax, ay, az, gx, gy, gz] = imu;
       const acc = accelDataRef.current;
       acc[0].push(ax); acc[0].shift();
@@ -227,31 +240,31 @@ export default function App() {
       gyr[1].push(gy); gyr[1].shift();
       gyr[2].push(gz); gyr[2].shift();
 
-      // 3. Accumulate sliding 1-second continuous window (10 samples)
+      // 4. Accumulate sliding 1-second continuous window (10 samples @ 10Hz)
       const win = windowBufferRef.current;
       win.push(imu);
       if (win.length > 10) win.shift();
 
       timeSinceLast1sUpdateRef.current += dt;
 
-      // 4. Update Position ONLY Every Single Second (1.0s) using the Transformer
+      // 5. Update Position ONLY Every Single Second (1.0s) using the Transformer
       if (timeSinceLast1sUpdateRef.current >= 1.0 && win.length >= 10) {
         timeSinceLast1sUpdateRef.current = 0.0;
         stepCountRef.current++;
 
-        // Execute Transformer ONNX Inference on 1-second window
+        // Execute Transformer ONNX Inference on 1-second aligned window
         const pred = await onnxInferenceService.predict1sDisplacement(win);
 
         // Update Particle Position Directly: px = px + Δx, py = py + Δy
         const motion = motionState.current;
         motion.posX += pred.dx;
         motion.posY += pred.dy;
-        motion.vx = pred.dx; // 1-second velocity
+        motion.vx = pred.dx;
         motion.vy = pred.dy;
         motion.speed = Math.hypot(pred.dx, pred.dy);
         motion.speedKmh = motion.speed * 3.6;
 
-        // Append discrete 1-second step to trajectory trail
+        // Append 1-second step to trajectory trail
         const trail = trailRef.current;
         trail.push({ x: motion.posX, y: motion.posY, speed: motion.speedKmh });
         if (trail.length > 3000) trail.shift();
@@ -263,14 +276,20 @@ export default function App() {
           vx: motion.vx,
           vy: motion.vy,
           speedKmh: motion.speedKmh,
-          latencyMs: pred.latencyMs
+          latencyMs: pred.latencyMs,
+          pitchDeg: alignResult.pitchDeg,
+          rollDeg: alignResult.rollDeg
         });
 
         setTransformerMetrics({
           lastPredDx: pred.dx,
           lastPredDy: pred.dy,
           stepCount: stepCountRef.current,
-          lastUpdateSec: Math.round(performance.now() / 1000)
+          lastUpdateSec: Math.round(performance.now() / 1000),
+          pitchDeg: alignResult.pitchDeg,
+          rollDeg: alignResult.rollDeg,
+          rawGyr: alignResult.rawGyr || [0, 0, 0],
+          alignedGyr: [gx, gy, gz]
         });
       }
 
@@ -304,6 +323,7 @@ export default function App() {
     motion.speed = 0;
     motion.speedKmh = 0;
     stepCountRef.current = 0;
+    orientationAligner.reset();
     if (recenterRef.current) recenterRef.current();
   };
 
@@ -336,7 +356,7 @@ export default function App() {
 
   return (
     <div className="app-container">
-      {/* Top Telemetry Navigation with v0.1.2 */}
+      {/* Top Telemetry Navigation with v0.1.3 */}
       <TopNav
         modelMode={modelMode}
         posX={telemetry.posX}
@@ -345,6 +365,10 @@ export default function App() {
         vy={telemetry.vy}
         speedKmh={telemetry.speedKmh}
         latencyMs={telemetry.latencyMs}
+        pitchDeg={telemetry.pitchDeg}
+        rollDeg={telemetry.rollDeg}
+        isAlignEnabled={isAlignEnabled}
+        onToggleAlign={() => setIsAlignEnabled(!isAlignEnabled)}
         isONNXReady={isONNXReady}
         source={source}
         onToggleSource={handleToggleSource}
@@ -374,6 +398,8 @@ export default function App() {
         hiddenStateRef={hiddenStateRef}
         scalers={scalers}
         ekfMetrics={transformerMetrics}
+        isAlignEnabled={isAlignEnabled}
+        onToggleAlign={() => setIsAlignEnabled(!isAlignEnabled)}
         isONNXReady={isONNXReady}
         isPlaying={isPlaying}
         setIsPlaying={setIsPlaying}
