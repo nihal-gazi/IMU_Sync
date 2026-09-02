@@ -134,7 +134,7 @@ export default function App() {
 
   useEffect(() => {
     async function setup() {
-      console.log('[IMU-Sync] Initializing Kinematic Acceleration System v0.1.8...');
+      console.log('[IMU-Sync] Initializing 100Hz Unified Multi-Task Transformer v0.1.9...');
       const ready = await onnxInferenceService.init('/models');
       setIsONNXReady(ready);
       setScalers(onnxInferenceService.scalers);
