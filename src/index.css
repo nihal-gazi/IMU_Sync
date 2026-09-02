@@ -648,20 +648,42 @@ html, body, #root {
   transition: height 0.05s ease-out;
 }
 
-.model-explanation {
-  font-size: 10px;
-  color: var(--text-muted);
-  margin-top: 8px;
-  line-height: 1.4;
+.scalers-table-box {
+  background: rgba(0, 0, 0, 0.4);
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+  overflow-y: auto;
+  max-height: 110px;
+  padding: 4px;
 }
 
-.model-explanation code {
+.scalers-table {
+  width: 100%;
+  border-collapse: collapse;
   font-family: var(--font-mono);
-  color: #fff;
-  background: rgba(255, 255, 255, 0.06);
-  padding: 1px 4px;
-  border-radius: 3px;
+  font-size: 10px;
+  text-align: left;
 }
+
+.scalers-table th {
+  color: var(--text-muted);
+  padding: 3px 6px;
+  border-bottom: 1px solid var(--border-color);
+  font-weight: 600;
+  font-size: 9px;
+  letter-spacing: 0.5px;
+}
+
+.scalers-table td {
+  padding: 2.5px 6px;
+  color: var(--text-main);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+}
+
+.target-scaler-row td {
+  background: rgba(0, 240, 255, 0.04);
+}
+
 
 /* ==========================================================================
    Tab 3: Controls & Simulator

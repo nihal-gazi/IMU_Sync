@@ -1,12 +1,13 @@
 import React from 'react';
-import { Compass, RefreshCw, Trash2, Zap } from 'lucide-react';
+import { Compass, Trash2 } from 'lucide-react';
 
 export default function TopNav({
   modelMode,
   posX,
   posY,
+  vx,
+  vy,
   speedKmh,
-  headingDeg,
   latencyMs,
   isONNXReady,
   source,
@@ -20,7 +21,7 @@ export default function TopNav({
         <div className="logo-dot"></div>
         <div className="brand-text">
           <span className="brand-title">IMU-SYNC</span>
-          <span className="brand-sub">ONNX RUNTIME WEB // IO-VNBD</span>
+          <span className="brand-sub">v0.0.1 // ONNX RUNTIME WEB</span>
         </div>
       </div>
 
@@ -34,19 +35,19 @@ export default function TopNav({
         </div>
         <div className="hud-item">
           <span className="hud-label">POS (X, Y)</span>
-          <span className="hud-val">{posX.toFixed(2)}m, {posY.toFixed(2)}m</span>
+          <span className="hud-val">{(posX || 0).toFixed(2)}m, {(posY || 0).toFixed(2)}m</span>
+        </div>
+        <div className="hud-item">
+          <span className="hud-label">VELOCITY (Vx, Vy)</span>
+          <span className="hud-val highlight-cyan">{(vx || 0).toFixed(2)}, {(vy || 0).toFixed(2)} m/s</span>
         </div>
         <div className="hud-item">
           <span className="hud-label">SPEED</span>
-          <span className="hud-val">{speedKmh.toFixed(1)} km/h</span>
-        </div>
-        <div className="hud-item">
-          <span className="hud-label">HEADING</span>
-          <span className="hud-val">{headingDeg.toFixed(1)}°</span>
+          <span className="hud-val">{(speedKmh || 0).toFixed(1)} km/h</span>
         </div>
         <div className="hud-item">
           <span className="hud-label">LATENCY</span>
-          <span className="hud-val hud-green">{latencyMs.toFixed(2)} ms</span>
+          <span className="hud-val hud-green">{(latencyMs || 0).toFixed(2)} ms</span>
         </div>
       </div>
 

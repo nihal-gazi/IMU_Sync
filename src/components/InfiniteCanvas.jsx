@@ -9,7 +9,6 @@ export default function InfiniteCanvas({
   const canvasRef = useRef(null);
   const containerRef = useRef(null);
 
-  // Viewport navigation state in refs for 60fps performance
   const viewState = useRef({
     zoom: 1.0,
     minZoom: 0.1,
@@ -35,12 +34,10 @@ export default function InfiniteCanvas({
     v.cameraLocked = true;
   }, [motionState]);
 
-  // Expose recenter to parent
   useEffect(() => {
     if (onRecenterRef) onRecenterRef.current = recenter;
   }, [recenter, onRecenterRef]);
 
-  // Handle Resize
   const handleResize = useCallback(() => {
     const canvas = canvasRef.current;
     const container = containerRef.current;
@@ -62,7 +59,6 @@ export default function InfiniteCanvas({
     }
   }, [recenter]);
 
-  // Zoom at point
   const zoomAt = (screenX, screenY, factor) => {
     const v = viewState.current;
     const rect = canvasRef.current.getBoundingClientRect();
@@ -77,7 +73,6 @@ export default function InfiniteCanvas({
     v.zoom = newZoom;
   };
 
-  // Setup Event Listeners
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -112,7 +107,6 @@ export default function InfiniteCanvas({
       zoomAt(e.clientX, e.clientY, factor);
     };
 
-    // Touch
     const onTouchStart = (e) => {
       if (e.touches.length === 1) {
         const v = viewState.current;
@@ -172,25 +166,23 @@ export default function InfiniteCanvas({
       const h = v.height;
       if (!w || !h) return;
 
-      // Auto-center camera if locked
       if (v.cameraLocked) {
         const ppm = 20 * v.zoom;
         v.panX = w / 2 - motion.posX * ppm;
         v.panY = h / 2 + motion.posY * ppm;
       }
 
-      // 1. Clear background
+      // 1. Clear Background
       ctx.fillStyle = '#060609';
       ctx.fillRect(0, 0, w, h);
 
-      // Coordinate converter (world meters to screen pixels)
       const ppm = 20 * v.zoom;
       const worldToScreen = (wx, wy) => ({
         sx: v.panX + wx * ppm,
         sy: v.panY - wy * ppm
       });
 
-      // 2. Draw Infinite Draggable Grid
+      // 2. Draw Infinite Coordinate Grid
       let gridStepMeters = 10;
       if (v.zoom > 3.0) gridStepMeters = 2;
       else if (v.zoom > 1.5) gridStepMeters = 5;
@@ -203,7 +195,6 @@ export default function InfiniteCanvas({
       const startY = Math.floor((v.panY - h) / gridStepPx) * gridStepMeters;
       const endY = Math.ceil(v.panY / gridStepPx) * gridStepMeters;
 
-      // Grid Lines
       ctx.strokeStyle = 'rgba(255, 255, 255, 0.04)';
       ctx.lineWidth = 1;
       ctx.beginPath();
@@ -244,7 +235,7 @@ export default function InfiniteCanvas({
         }
       }
 
-      // 3. Draw Trajectory Trail
+      // 3. Draw Trajectory Path Trail
       if (trail.length >= 2) {
         ctx.lineWidth = Math.max(1.5, 2.5 * v.zoom);
         ctx.lineCap = 'round';
@@ -253,10 +244,10 @@ export default function InfiniteCanvas({
         for (let i = 1; i < trail.length; i++) {
           const p0 = worldToScreen(trail[i - 1].x, trail[i - 1].y);
           const p1 = worldToScreen(trail[i].x, trail[i].y);
-          const spd = trail[i].speed;
+          const spd = trail[i].speed || 0;
 
-          if (spd < 10) ctx.strokeStyle = 'rgba(0, 240, 255, 0.5)';
-          else if (spd < 40) ctx.strokeStyle = 'rgba(255, 184, 0, 0.6)';
+          if (spd < 5) ctx.strokeStyle = 'rgba(0, 240, 255, 0.5)';
+          else if (spd < 20) ctx.strokeStyle = 'rgba(255, 184, 0, 0.6)';
           else ctx.strokeStyle = 'rgba(255, 0, 127, 0.7)';
 
           ctx.beginPath();
@@ -266,7 +257,7 @@ export default function InfiniteCanvas({
         }
       }
 
-      // 4. Draw Center Compass Point with Directional Vector Arrow
+      // 4. Draw Center Particle & Velocity Vector Arrow
       const { sx, sy } = worldToScreen(motion.posX, motion.posY);
 
       // Radar Pulse
@@ -293,13 +284,23 @@ export default function InfiniteCanvas({
       ctx.fill();
       ctx.shadowBlur = 0;
 
-      // Small Line with Arrow Pointing as per ML Output Vector
-      const angleRad = motion.headingRad;
-      const mag = Math.sqrt(motion.dx * motion.dx + motion.dy * motion.dy);
-      const arrowLen = Math.min(Math.max(28 + mag * 30, 26), 65);
+      // Small Line with Arrow Pointing along (Vx, Vy) — default North (0, -1) when at rest
+      const vx = motion.vx || 0;
+      const vy = motion.vy || 0;
+      const speed = Math.hypot(vx, vy);
 
-      const tipX = sx + Math.sin(angleRad) * arrowLen;
-      const tipY = sy - Math.cos(angleRad) * arrowLen;
+      let dirX = 0;
+      let dirY = -1; // Default North
+      let arrowLen = 32;
+
+      if (speed > 0.01) {
+        dirX = vx / speed;
+        dirY = -vy / speed; // Math +Vy is canvas -Y
+        arrowLen = Math.min(Math.max(28 + speed * 6, 26), 65);
+      }
+
+      const tipX = sx + dirX * arrowLen;
+      const tipY = sy + dirY * arrowLen;
 
       // Stem Line
       ctx.strokeStyle = '#00f0ff';
@@ -309,7 +310,7 @@ export default function InfiniteCanvas({
       ctx.lineTo(tipX, tipY);
       ctx.stroke();
 
-      // Arrow Wings
+      // Arrowhead Wings
       const headLen = 8;
       const headAngle = Math.PI / 6;
       const stemAngle = Math.atan2(tipY - sy, tipX - sx);
@@ -331,12 +332,6 @@ export default function InfiniteCanvas({
       );
       ctx.closePath();
       ctx.fill();
-
-      // Heading Tag
-      ctx.fillStyle = 'rgba(0, 240, 255, 0.9)';
-      ctx.font = '10px "JetBrains Mono", monospace';
-      ctx.textAlign = 'left';
-      ctx.fillText(`${motion.headingDeg.toFixed(0)}°`, tipX + 8, tipY - 4);
 
       animId = requestAnimationFrame(render);
     };

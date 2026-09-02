@@ -1,8 +1,7 @@
 /**
  * ONNX Runtime Web Inference Service for IMU-Sync
- * Model Target Outputs: [vx, vy, |v|] (3 outputs)
- * Predicts 2D velocity vector and speed directly from sensor data,
- * and integrates velocity to compute particle position displacement (dx, dy).
+ * Model Target Outputs: [vx, vy] (2 outputs)
+ * Direct Velocity Prediction: Predicts 2D velocity vector [vx, vy] directly from 6-axis IMU.
  */
 
 import * as ort from 'onnxruntime-web';
@@ -18,15 +17,17 @@ class ONNXInferenceService {
     this.hiddenDim = 32;
     this.hiddenState = new Float32Array(this.hiddenDim);
 
-    // Default normalization scalers for 6 inputs and 3 targets [vx, vy, speed]
+    // Normalization Scalers for 6 inputs and 2 targets [vx, vy]
     this.scalers = {
       features: {
+        names: ['ax', 'ay', 'az', 'gx', 'gy', 'gz'],
         mean: [0.042, 0.062, 9.847, 0.002, -0.007, 0.002],
         std: [0.954, 0.887, 1.214, 0.124, 0.098, 0.089]
       },
       targets: {
-        mean: [0.12, 1.84, 2.06],
-        std: [1.25, 2.10, 2.15]
+        names: ['vx', 'vy'],
+        mean: [0.12, 1.84],
+        std: [1.25, 2.10]
       }
     };
   }
@@ -43,7 +44,7 @@ class ONNXInferenceService {
           const scalerJson = await scalerRes.json();
           if (scalerJson.features && scalerJson.targets) {
             this.scalers = scalerJson;
-            console.log('[ONNX Service] Scaler parameters loaded for [vx, vy, |v|].');
+            console.log('[ONNX Service] Scaler parameters loaded for [vx, vy].');
           }
         }
       } catch (e) {
@@ -57,7 +58,7 @@ class ONNXInferenceService {
       this.sessionRNN = await ort.InferenceSession.create(new Uint8Array(rnnBuffer), {
         executionProviders: ['wasm']
       });
-      console.log('[ONNX Service] SimpleRNN ONNX session initialized ([vx, vy, |v|]).');
+      console.log('[ONNX Service] SimpleRNN ONNX session initialized ([vx, vy]).');
 
       // 3. Fetch and Load MLP ONNX Model as Uint8Array Memory Buffer
       const mlpRes = await fetch(`${modelsBasePath}/mlp_model.onnx`);
@@ -66,7 +67,7 @@ class ONNXInferenceService {
       this.sessionMLP = await ort.InferenceSession.create(new Uint8Array(mlpBuffer), {
         executionProviders: ['wasm']
       });
-      console.log('[ONNX Service] SimpleMLP ONNX session initialized ([vx, vy, |v|]).');
+      console.log('[ONNX Service] SimpleMLP ONNX session initialized ([vx, vy]).');
 
       this.isReady = true;
       return true;
@@ -101,23 +102,22 @@ class ONNXInferenceService {
   denormalizeOutput(rawY) {
     const mean = this.scalers.targets.mean;
     const std = this.scalers.targets.std;
-    const out = new Float32Array(3);
-    for (let i = 0; i < 3; i++) {
+    const out = new Float32Array(2);
+    for (let i = 0; i < 2; i++) {
       out[i] = rawY[i] * (std[i] || 1.0) + mean[i];
     }
     return out;
   }
 
   /**
-   * Runs single millisecond/step inference
-   * Predicts [vx, vy, speed] and applies velocity to compute (dx, dy).
+   * Runs single step inference
+   * Predicts [vx, vy] directly from sensor data.
    * @param {Array<number>} rawImu - [ax, ay, az, gx, gy, gz]
-   * @param {number} dt - sample time delta in seconds (nominal 0.1s)
    */
-  async predictStep(rawImu, dt = 0.1) {
+  async predictStep(rawImu) {
     const t0 = performance.now();
     const xNorm = this.normalizeInput(rawImu);
-    let rawPred = new Float32Array(3);
+    let rawPred = new Float32Array(2);
 
     try {
       if (this.isReady && this.mode === 'rnn' && this.sessionRNN) {
@@ -131,40 +131,30 @@ class ONNXInferenceService {
         const outHNext = results.h_next.data;
 
         this.hiddenState.set(outHNext);
-        for (let i = 0; i < 3; i++) rawPred[i] = outVector[i];
+        rawPred[0] = outVector[0];
+        rawPred[1] = outVector[1];
       } else if (this.isReady && this.mode === 'mlp' && this.sessionMLP) {
         const tensorX = new ort.Tensor('float32', xNorm, [1, 6]);
         const feeds = { input_imu: tensorX };
         const results = await this.sessionMLP.run(feeds);
 
         const outVector = results.vector_output.data;
-        for (let i = 0; i < 3; i++) rawPred[i] = outVector[i];
+        rawPred[0] = outVector[0];
+        rawPred[1] = outVector[1];
       } else {
-        // Analytical fallback
         const [ax, ay, az, gx, gy, gz] = rawImu;
-        const speed = Math.max(0, Math.sqrt(ax * ax + ay * ay) * 0.8);
-        const heading = Math.atan2(ay, ax);
-        rawPred[0] = speed * Math.sin(heading);
-        rawPred[1] = speed * Math.cos(heading);
-        rawPred[2] = speed;
+        const spd = Math.max(0, Math.sqrt(ax * ax + ay * ay) * 0.5);
+        rawPred[0] = ax * 0.3;
+        rawPred[1] = ay * 0.3;
       }
     } catch (e) {
       console.warn('[ONNX Service] Inference step error:', e);
     }
 
     const denorm = this.denormalizeOutput(rawPred);
-    const vx = denorm[0]; // East velocity
-    const vy = denorm[1]; // North velocity
-    const speed = Math.max(0, denorm[2]); // Magnitude |v|
-
-    // Heading direction angle derived from velocity vector (vx, vy)
-    let headingRad = Math.atan2(vx, vy);
-    if (headingRad < 0) headingRad += 2 * Math.PI;
-    const headingDeg = (headingRad * 180) / Math.PI;
-
-    // Apply predicted velocity directly to particle displacement: dx = vx * dt, dy = vy * dt
-    const dx = vx * dt;
-    const dy = vy * dt;
+    const vx = denorm[0];
+    const vy = denorm[1];
+    const speed = Math.hypot(vx, vy);
     const latencyMs = Math.max(0.01, performance.now() - t0);
 
     return {
@@ -172,11 +162,8 @@ class ONNXInferenceService {
       vy,
       speed,
       speedKmh: speed * 3.6,
-      headingDeg,
-      headingRad,
-      dx,
-      dy,
       hiddenState: this.hiddenState,
+      scalers: this.scalers,
       latencyMs
     };
   }

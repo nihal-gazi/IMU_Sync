@@ -3,6 +3,7 @@ import React, { useRef, useEffect } from 'react';
 export default function MLVectorRadar({
   motionState,
   hiddenStateRef,
+  scalers,
   isONNXReady
 }) {
   const radarCanvasRef = useRef(null);
@@ -58,25 +59,36 @@ export default function MLVectorRadar({
           ctx.font = '9px "JetBrains Mono", monospace';
           ctx.textAlign = 'center';
           ctx.textBaseline = 'bottom';
-          ctx.fillText('N (0°)', cx, cy - radius - 2);
+          ctx.fillText('N (+Vy)', cx, cy - radius - 2);
           ctx.textBaseline = 'top';
-          ctx.fillText('S (180°)', cx, cy + radius + 2);
+          ctx.fillText('S (-Vy)', cx, cy + radius + 2);
           ctx.textAlign = 'left';
           ctx.textBaseline = 'middle';
-          ctx.fillText('E (90°)', cx + radius + 3, cy);
+          ctx.fillText('E (+Vx)', cx + radius + 3, cy);
           ctx.textAlign = 'right';
-          ctx.fillText('W (270°)', cx - radius - 3, cy);
+          ctx.fillText('W (-Vx)', cx - radius - 3, cy);
 
-          // 4. ML Vector Arrow
-          const motion = motionState?.current || { headingRad: 0, speed: 0 };
-          const angleRad = motion.headingRad || 0;
-          const speed = motion.speed || 0;
-          const maxSpeed = 30.0;
-          const magRatio = Math.min(speed / maxSpeed, 1.0);
-          const arrowLen = Math.max(radius * 0.25, radius * magRatio);
+          // 4. ML Velocity Vector (Vx, Vy)
+          // Default points North (0, -1) if velocity is near zero
+          const motion = motionState?.current || { vx: 0, vy: 0, speed: 0 };
+          const vx = motion.vx || 0;
+          const vy = motion.vy || 0;
+          const speed = Math.hypot(vx, vy);
 
-          const tipX = cx + Math.sin(angleRad) * arrowLen;
-          const tipY = cy - Math.cos(angleRad) * arrowLen;
+          let dirX = 0;
+          let dirY = -1; // North default
+          let arrowLen = radius * 0.35;
+
+          if (speed > 0.01) {
+            dirX = vx / speed;
+            dirY = -vy / speed; // Math +Vy is canvas -Y (North)
+            const maxSpeed = 25.0;
+            const magRatio = Math.min(speed / maxSpeed, 1.0);
+            arrowLen = Math.max(radius * 0.3, radius * magRatio);
+          }
+
+          const tipX = cx + dirX * arrowLen;
+          const tipY = cy + dirY * arrowLen;
 
           // Radial Glowing Sector
           const grad = ctx.createRadialGradient(cx, cy, 2, cx, cy, radius);
@@ -134,27 +146,30 @@ export default function MLVectorRadar({
     return () => cancelAnimationFrame(animId);
   }, [motionState]);
 
-  const motion = motionState?.current || {
-    headingDeg: 0,
-    headingRad: 0,
-    speed: 0,
-    speedKmh: 0,
-    dx: 0,
-    dy: 0,
-    dt: 0.1
-  };
-
+  const motion = motionState?.current || { vx: 0, vy: 0, speed: 0, speedKmh: 0 };
   const hidden = hiddenStateRef?.current || new Float32Array(32);
   let normSq = 0;
   for (let i = 0; i < hidden.length; i++) normSq += hidden[i] * hidden[i];
   const hiddenNorm = Math.sqrt(normSq);
 
+  const featScalers = scalers?.features || {
+    names: ['Ax', 'Ay', 'Az', 'Gx', 'Gy', 'Gz'],
+    mean: [0.04, 0.06, 9.85, 0.002, -0.007, 0.002],
+    std: [0.95, 0.89, 1.21, 0.124, 0.098, 0.089]
+  };
+
+  const targetScalers = scalers?.targets || {
+    names: ['Vx', 'Vy'],
+    mean: [0.12, 1.84],
+    std: [1.25, 2.10]
+  };
+
   return (
     <div className="ml-view-grid">
-      {/* Polar Vector Radar */}
+      {/* 1. Polar Velocity Vector Visualizer */}
       <div className="ml-card">
         <div className="radar-header">
-          <span className="card-title">ML OUTPUT VECTOR // POINTING AT EVERY MS</span>
+          <span className="card-title">PREDICTED VELOCITY VECTOR // [Vx, Vy]</span>
           <span className="badge">{isONNXReady ? 'ONNX LIVE' : 'INITIALIZING'}</span>
         </div>
         <div className="radar-body">
@@ -163,52 +178,79 @@ export default function MLVectorRadar({
           </div>
           <div className="vector-readouts">
             <div className="readout-box">
-              <span className="r-label">PREDICTED HEADING (θ)</span>
-              <span className="r-val highlight-cyan">{(motion.headingDeg || 0).toFixed(2)}°</span>
-              <span className="r-sub">{(motion.headingRad || 0).toFixed(3)} rad</span>
+              <span className="r-label">PREDICTED VELOCITY (Vx, Vy)</span>
+              <span className="r-val highlight-cyan">
+                Vx: {(motion.vx || 0).toFixed(2)} m/s, Vy: {(motion.vy || 0).toFixed(2)} m/s
+              </span>
+              <span className="r-sub">Default: North [0, 1] at rest</span>
             </div>
             <div className="readout-box">
-              <span className="r-label">VECTOR MAGNITUDE |v|</span>
+              <span className="r-label">SPEED MAGNITUDE |v| = √(Vx² + Vy²)</span>
               <span className="r-val highlight-amber">{(motion.speed || 0).toFixed(2)} m/s</span>
               <span className="r-sub">{(motion.speedKmh || 0).toFixed(1)} km/h</span>
             </div>
             <div className="readout-box">
-              <span className="r-label">STEP DISPLACEMENT (dx, dy)</span>
-              <span className="r-val">dx: {(motion.dx || 0).toFixed(3)}m, dy: {(motion.dy || 0).toFixed(3)}m</span>
-              <span className="r-sub">dt = {((motion.dt || 0.1) * 1000).toFixed(0)}ms</span>
+              <span className="r-label">PARTICLE POSITION UPDATE</span>
+              <span className="r-val">px = px + vx,  py = py + vy</span>
+              <span className="r-sub">Direct velocity accumulation</span>
             </div>
           </div>
         </div>
       </div>
 
-      {/* RNN Hidden State Representation */}
+      {/* 2. Normalization Factors & RNN Hidden Representation */}
       <div className="ml-card">
         <div className="radar-header">
-          <span className="card-title">RNN HIDDEN LAYER REPRESENTATION (h_t ∈ ℝ³²)</span>
+          <span className="card-title">NORMALIZATION FACTORS & RNN HIDDEN STATE</span>
           <span className="state-meta">||h_t|| = {hiddenNorm.toFixed(2)}</span>
         </div>
-        <div className="hidden-state-body">
-          <div className="neurons-bar-grid">
-            {Array.from({ length: 32 }).map((_, i) => {
-              const val = hidden[i] || 0;
-              const heightPct = Math.min(Math.max(Math.abs(val) * 100, 5), 100);
-              const bgColor = val >= 0
-                ? `rgba(0, 240, 255, ${0.4 + Math.abs(val) * 0.6})`
-                : `rgba(255, 0, 127, ${0.4 + Math.abs(val) * 0.6})`;
-              return (
-                <div key={i} className="neuron-bar-col">
-                  <div
-                    className="neuron-bar"
-                    style={{ height: `${heightPct}%`, backgroundColor: bgColor }}
-                  />
-                </div>
-              );
-            })}
-          </div>
-          <div className="model-explanation">
-            <p><strong>Recurrent Node Equation:</strong> <code>{'h_t = tanh(W_ih · x_t + W_hh · h_{t-1} + b)'}</code></p>
-            <p><strong>Vector Mapping:</strong> <code>{'[v_x, v_y, |v|, cos θ, sin θ] = W_out · h_t + b_out'}</code></p>
-          </div>
+
+        {/* Normalization Factors Table */}
+        <div className="scalers-table-box">
+          <table className="scalers-table">
+            <thead>
+              <tr>
+                <th>Field</th>
+                <th>Mean (μ)</th>
+                <th>Std (σ)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {featScalers.names.map((name, idx) => (
+                <tr key={name}>
+                  <td><strong>{name}</strong></td>
+                  <td>{(featScalers.mean[idx] || 0).toFixed(4)}</td>
+                  <td>{(featScalers.std[idx] || 1).toFixed(4)}</td>
+                </tr>
+              ))}
+              {targetScalers.names.map((name, idx) => (
+                <tr key={name} className="target-scaler-row">
+                  <td><strong style={{ color: 'var(--accent-cyan)' }}>{name} (Target)</strong></td>
+                  <td>{(targetScalers.mean[idx] || 0).toFixed(4)}</td>
+                  <td>{(targetScalers.std[idx] || 1).toFixed(4)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {/* 32 Hidden Neurons */}
+        <div className="neurons-bar-grid" style={{ marginTop: '8px' }}>
+          {Array.from({ length: 32 }).map((_, i) => {
+            const val = hidden[i] || 0;
+            const heightPct = Math.min(Math.max(Math.abs(val) * 100, 5), 100);
+            const bgColor = val >= 0
+              ? `rgba(0, 240, 255, ${0.4 + Math.abs(val) * 0.6})`
+              : `rgba(255, 0, 127, ${0.4 + Math.abs(val) * 0.6})`;
+            return (
+              <div key={i} className="neuron-bar-col">
+                <div
+                  className="neuron-bar"
+                  style={{ height: `${heightPct}%`, backgroundColor: bgColor }}
+                />
+              </div>
+            );
+          })}
         </div>
       </div>
     </div>

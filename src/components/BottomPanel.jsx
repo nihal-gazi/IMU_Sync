@@ -17,6 +17,7 @@ export default function BottomPanel({
   // ML Vector Radar Props
   motionState,
   hiddenStateRef,
+  scalers,
   isONNXReady,
   // Control Panel Props
   isPlaying,
@@ -116,6 +117,7 @@ export default function BottomPanel({
             <MLVectorRadar
               motionState={motionState}
               hiddenStateRef={hiddenStateRef}
+              scalers={scalers}
               isONNXReady={isONNXReady}
             />
           </div>
@@ -171,7 +173,7 @@ export default function BottomPanel({
               {/* Mobile Phone Bridge */}
               <div className="control-card">
                 <h4 className="control-title">Live Smartphone IMU Bridge</h4>
-                <p className="card-desc">Stream live accelerometer & gyroscope readings from your actual phone browser.</p>
+                <p className="card-desc">Stream live accelerometer & gyroscope readings from your phone browser.</p>
                 <div className="phone-connect-actions">
                   <button className="btn btn-outline" onClick={onEnableMobileSensors}>
                     Enable Mobile Sensors

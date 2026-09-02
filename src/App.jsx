@@ -7,7 +7,8 @@ import { onnxInferenceService } from './services/onnxInference';
 export default function App() {
   const [isONNXReady, setIsONNXReady] = useState(false);
   const [modelMode, setModelMode] = useState('rnn'); // 'rnn' | 'mlp'
-  const [source, setSource] = useState('replay'); // 'replay' | 'phone' | 'sim'
+  // Default to PHONE sensor as requested
+  const [source, setSource] = useState('phone'); // 'phone' | 'replay' | 'sim'
   const [activeTab, setActiveTab] = useState('sensors');
   const [isCollapsed, setIsCollapsed] = useState(false);
 
@@ -21,8 +22,9 @@ export default function App() {
   const [telemetry, setTelemetry] = useState({
     posX: 0,
     posY: 0,
+    vx: 0,
+    vy: 0,
     speedKmh: 0,
-    headingDeg: 0,
     latencyMs: 0.4
   });
 
@@ -30,19 +32,17 @@ export default function App() {
   const [simAy, setSimAy] = useState(0);
   const [simGz, setSimGz] = useState(0);
   const [demoMode, setDemoMode] = useState(null);
-  const [mobileSensorStatus, setMobileSensorStatus] = useState('Ready');
+  const [mobileSensorStatus, setMobileSensorStatus] = useState('Active (Listening)');
+  const [scalers, setScalers] = useState(onnxInferenceService.scalers);
 
   // Mutable refs for 60fps telemetry & inference loop
   const motionState = useRef({
     posX: 0,
     posY: 0,
-    headingDeg: 0,
-    headingRad: 0,
+    vx: 0,
+    vy: 0,
     speed: 0,
-    speedKmh: 0,
-    dx: 0,
-    dy: 0,
-    dt: 0.1
+    speedKmh: 0
   });
 
   const trailRef = useRef([]);
@@ -68,7 +68,7 @@ export default function App() {
   const replayIndexRef = useRef(0);
   const isPlayingRef = useRef(true);
   const speedMultRef = useRef(1);
-  const sourceRef = useRef('replay');
+  const sourceRef = useRef('phone');
   const demoTimeRef = useRef(0);
   const simAyRef = useRef(0);
   const simGzRef = useRef(0);
@@ -84,12 +84,33 @@ export default function App() {
   useEffect(() => { demoModeRef.current = demoMode; }, [demoMode]);
   useEffect(() => { datasetFramesRef.current = datasetFrames; }, [datasetFrames]);
 
-  // Initialize ONNX Runtime Web and Load Dataset
+  // Bind phone sensors immediately on startup
+  const bindDeviceMotion = useCallback(() => {
+    const handleMotion = (event) => {
+      const acc = event.accelerationIncludingGravity || { x: 0, y: 0, z: 9.81 };
+      const rot = event.rotationRate || { alpha: 0, beta: 0, gamma: 0 };
+      const deg2rad = Math.PI / 180.0;
+      phoneImuRef.current = [
+        acc.x || 0.0,
+        acc.y || 0.0,
+        acc.z || 9.81,
+        (rot.gamma || 0.0) * deg2rad,
+        (rot.beta || 0.0) * deg2rad,
+        (rot.alpha || 0.0) * deg2rad
+      ];
+    };
+
+    window.addEventListener('devicemotion', handleMotion);
+    return () => window.removeEventListener('devicemotion', handleMotion);
+  }, []);
+
+  // Initialize ONNX Runtime Web, Datasets & Phone Sensors
   useEffect(() => {
     async function setup() {
-      console.log('[IMU-Sync] Initializing ONNX Runtime Web...');
+      console.log('[IMU-Sync] Initializing ONNX Runtime Web v0.0.1...');
       const ready = await onnxInferenceService.init('/models');
       setIsONNXReady(ready);
+      setScalers(onnxInferenceService.scalers);
 
       try {
         const resp = await fetch('/data/sample_journey.json');
@@ -97,14 +118,15 @@ export default function App() {
           const data = await resp.json();
           setDatasetFrames(data);
           datasetFramesRef.current = data;
-          console.log(`[Replay] Loaded ${data.length} driving frames.`);
         }
       } catch (e) {
         console.warn('[Replay] Could not load sample journey JSON:', e);
       }
     }
     setup();
-  }, []);
+    const unbind = bindDeviceMotion();
+    return () => unbind();
+  }, [bindDeviceMotion]);
 
   // Sync Architecture Mode with ONNX Service
   useEffect(() => {
@@ -123,12 +145,15 @@ export default function App() {
       if (dt <= 0 || dt > 0.5) dt = 0.1;
 
       let imu = [0, 0, 9.81, 0, 0, 0];
-      let stepDt = dt;
       const frames = datasetFramesRef.current;
       const curSource = sourceRef.current;
 
-      // 1. Source: Dataset Replay
-      if (curSource === 'replay' && frames && frames.length > 0) {
+      // 1. Source: Live Phone Sensors (Default)
+      if (curSource === 'phone') {
+        imu = phoneImuRef.current;
+      }
+      // 2. Source: Dataset Replay
+      else if (curSource === 'replay' && frames && frames.length > 0) {
         if (isPlayingRef.current) {
           replayIndexRef.current = (replayIndexRef.current + speedMultRef.current) % frames.length;
           setReplayIndex(replayIndexRef.current);
@@ -136,10 +161,9 @@ export default function App() {
         const row = frames[replayIndexRef.current];
         if (row) {
           imu = [row.ax, row.ay, row.az, row.gx, row.gy, row.gz];
-          stepDt = row.dt || 0.1;
         }
       } 
-      // 2. Source: Simulator & Manual Joystick
+      // 3. Source: Simulator & Manual Joystick
       else if (curSource === 'sim') {
         const dMode = demoModeRef.current;
         if (dMode === 'circle') {
@@ -164,7 +188,6 @@ export default function App() {
             turnRate + (Math.random() - 0.5) * 0.03
           ];
         } else {
-          // Manual Sliders with subtle realistic sensor noise
           const noiseAx = (Math.random() - 0.5) * 0.08;
           const noiseAy = (Math.random() - 0.5) * 0.12;
           const noiseAz = (Math.random() - 0.5) * 0.1;
@@ -181,12 +204,6 @@ export default function App() {
             simGzRef.current + noiseGz
           ];
         }
-        stepDt = dt;
-      } 
-      // 3. Source: Live Smartphone
-      else if (curSource === 'phone') {
-        imu = phoneImuRef.current;
-        stepDt = dt;
       }
 
       currentImuRef.current = imu;
@@ -203,20 +220,19 @@ export default function App() {
       gyr[1].push(gy); gyr[1].shift();
       gyr[2].push(gz); gyr[2].shift();
 
-      // 3. Run ONNX Inference Step
-      const pred = await onnxInferenceService.predictStep(imu, stepDt);
+      // 3. Run ONNX Inference: Predicts [vx, vy]
+      const pred = await onnxInferenceService.predictStep(imu);
 
-      // 4. Update Motion State
+      // 4. Update Particle Position: px = px + vx, py = py + vy (Direct Velocity Accumulation)
       const motion = motionState.current;
-      motion.posX += pred.dx;
-      motion.posY += pred.dy;
-      motion.headingDeg = pred.headingDeg;
-      motion.headingRad = pred.headingRad;
+      motion.vx = pred.vx;
+      motion.vy = pred.vy;
       motion.speed = pred.speed;
       motion.speedKmh = pred.speedKmh;
-      motion.dx = pred.dx;
-      motion.dy = pred.dy;
-      motion.dt = stepDt;
+
+      // Direct integration
+      motion.posX += pred.vx;
+      motion.posY += pred.vy;
 
       hiddenStateRef.current = pred.hiddenState;
 
@@ -225,14 +241,15 @@ export default function App() {
       trail.push({ x: motion.posX, y: motion.posY, speed: motion.speedKmh });
       if (trail.length > 3000) trail.shift();
 
-      // 6. Update HUD Telemetry (Throttled for React State)
+      // 6. Update HUD Telemetry
       hudCounter++;
       if (hudCounter % 4 === 0) {
         setTelemetry({
           posX: motion.posX,
           posY: motion.posY,
+          vx: pred.vx,
+          vy: pred.vy,
           speedKmh: motion.speedKmh,
-          headingDeg: motion.headingDeg,
           latencyMs: pred.latencyMs
         });
       }
@@ -246,14 +263,11 @@ export default function App() {
 
   // Actions
   const handleToggleSource = () => {
-    if (source === 'replay') {
+    if (source === 'phone') setSource('replay');
+    else if (source === 'replay') {
       setSource('sim');
       setDemoMode(null);
-    } else if (source === 'sim') {
-      setSource('replay');
-    } else {
-      setSource('replay');
-    }
+    } else setSource('phone');
   };
 
   const handleRecenter = () => {
@@ -296,31 +310,16 @@ export default function App() {
     }
   };
 
-  const bindDeviceMotion = () => {
-    window.addEventListener('devicemotion', (event) => {
-      const acc = event.accelerationIncludingGravity || { x: 0, y: 0, z: 9.81 };
-      const rot = event.rotationRate || { alpha: 0, beta: 0, gamma: 0 };
-      const deg2rad = Math.PI / 180.0;
-      phoneImuRef.current = [
-        acc.x || 0.0,
-        acc.y || 0.0,
-        acc.z || 9.81,
-        (rot.gamma || 0.0) * deg2rad,
-        (rot.beta || 0.0) * deg2rad,
-        (rot.alpha || 0.0) * deg2rad
-      ];
-    });
-  };
-
   return (
     <div className="app-container">
-      {/* Top Telemetry Navigation */}
+      {/* Top Telemetry Navigation with v0.0.1 */}
       <TopNav
         modelMode={modelMode}
         posX={telemetry.posX}
         posY={telemetry.posY}
+        vx={telemetry.vx}
+        vy={telemetry.vy}
         speedKmh={telemetry.speedKmh}
-        headingDeg={telemetry.headingDeg}
         latencyMs={telemetry.latencyMs}
         isONNXReady={isONNXReady}
         source={source}
@@ -349,6 +348,7 @@ export default function App() {
         currentImuRef={currentImuRef}
         motionState={motionState}
         hiddenStateRef={hiddenStateRef}
+        scalers={scalers}
         isONNXReady={isONNXReady}
         isPlaying={isPlaying}
         setIsPlaying={setIsPlaying}
