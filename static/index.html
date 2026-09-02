@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>IMU-Sync | Neural Inertial Odometry & IMU Testing Suite</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+  <!-- Top Navigation & Status Bar -->
+  <header class="top-nav">
+    <div class="brand">
+      <div class="logo-dot"></div>
+      <div class="brand-text">
+        <span class="brand-title">IMU-SYNC</span>
+        <span class="brand-sub">NEURAL DEAD RECKONING // IO-VNBD</span>
+      </div>
+    </div>
+
+    <!-- Active Telemetry Badges -->
+    <div class="hud-metrics">
+      <div class="hud-item">
+        <span class="hud-label">MODEL</span>
+        <span class="hud-val" id="hudModel">RNN (Sequential)</span>
+      </div>
+      <div class="hud-item">
+        <span class="hud-label">POS (X, Y)</span>
+        <span class="hud-val" id="hudPos">0.00 m, 0.00 m</span>
+      </div>
+      <div class="hud-item">
+        <span class="hud-label">SPEED</span>
+        <span class="hud-val" id="hudSpeed">0.0 km/h</span>
+      </div>
+      <div class="hud-item">
+        <span class="hud-label">HEADING</span>
+        <span class="hud-val" id="hudHeading">0.0°</span>
+      </div>
+      <div class="hud-item">
+        <span class="hud-label">LATENCY</span>
+        <span class="hud-val hud-green" id="hudLatency">0.4 ms</span>
+      </div>
+    </div>
+
+    <!-- Canvas Floating Controls -->
+    <div class="header-actions">
+      <button class="btn btn-outline" id="btnRecenter" title="Recenter Camera on Compass">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/></svg>
+        Recenter
+      </button>
+      <button class="btn btn-outline" id="btnClearTrail" title="Clear Trajectory Trail">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+        Clear Path
+      </button>
+      <button class="btn btn-primary" id="btnSourceToggle">
+        <span class="status-indicator"></span>
+        <span id="sourceLabel">Source: Replay</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- Main Viewport: Black Infinite Draggable Canvas -->
+  <main class="canvas-container" id="canvasContainer">
+    <canvas id="gridCanvas"></canvas>
+
+    <!-- Canvas HUD Overlays -->
+    <div class="canvas-overlay-tl">
+      <div class="coordinate-crosshair">
+        <span class="coord-tag">ORIGIN [0, 0]</span>
+        <span class="zoom-tag" id="zoomLevel">1.0x</span>
+      </div>
+    </div>
+
+    <div class="canvas-overlay-br">
+      <div class="zoom-controls">
+        <button class="zoom-btn" id="btnZoomIn" title="Zoom In">+</button>
+        <button class="zoom-btn" id="btnZoomOut" title="Zoom Out">−</button>
+        <button class="zoom-btn" id="btnResetZoom" title="Reset Zoom">1:1</button>
+      </div>
+    </div>
+  </main>
+
+  <!-- Bottom Panel with Tabs -->
+  <footer class="bottom-panel" id="bottomPanel">
+    <!-- Panel Header / Tab Navigation -->
+    <div class="tab-bar">
+      <div class="tab-nav-group">
+        <button class="tab-btn active" data-tab="sensorTab">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
+          Sensor Oscilloscope
+        </button>
+        <button class="tab-btn" data-tab="mlTab">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+          ML Vector & State
+        </button>
+        <button class="tab-btn" data-tab="controlTab">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
+          Data Stream & Simulator
+        </button>
+      </div>
+
+      <div class="tab-actions">
+        <!-- Model Toggle -->
+        <div class="model-pill-selector">
+          <span class="pill-label">Architecture:</span>
+          <button class="pill-btn active" id="btnSelectRNN">RNN (Sequential)</button>
+          <button class="pill-btn" id="btnSelectMLP">MLP (Stateless)</button>
+        </div>
+
+        <!-- Panel Toggle -->
+        <button class="panel-collapse-btn" id="btnTogglePanel" title="Collapse / Expand Panel">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- Tab Contents Container -->
+    <div class="tab-content-wrapper">
+      <!-- 1. SENSOR TAB: Live Oscilloscopes -->
+      <div class="tab-pane active" id="sensorTab">
+        <div class="sensor-graphs-grid">
+          <!-- Accelerometer Chart -->
+          <div class="graph-card">
+            <div class="graph-header">
+              <div class="graph-title-group">
+                <span class="graph-title">ACCELEROMETER</span>
+                <span class="graph-unit">[m/s²]</span>
+              </div>
+              <div class="graph-legend">
+                <span class="legend-item"><span class="legend-color dot-x"></span>Ax: <b id="valAx">+0.00</b></span>
+                <span class="legend-item"><span class="legend-color dot-y"></span>Ay: <b id="valAy">+0.00</b></span>
+                <span class="legend-item"><span class="legend-color dot-z"></span>Az: <b id="valAz">+9.81</b></span>
+              </div>
+            </div>
+            <div class="canvas-wrapper">
+              <canvas id="accelCanvas"></canvas>
+            </div>
+          </div>
+
+          <!-- Gyroscope Chart -->
+          <div class="graph-card">
+            <div class="graph-header">
+              <div class="graph-title-group">
+                <span class="graph-title">GYROSCOPE</span>
+                <span class="graph-unit">[rad/s]</span>
+              </div>
+              <div class="graph-legend">
+                <span class="legend-item"><span class="legend-color dot-gx"></span>Gx: <b id="valGx">+0.000</b></span>
+                <span class="legend-item"><span class="legend-color dot-gy"></span>Gy: <b id="valGy">+0.000</b></span>
+                <span class="legend-item"><span class="legend-color dot-gz"></span>Gz: <b id="valGz">+0.000</b></span>
+              </div>
+            </div>
+            <div class="canvas-wrapper">
+              <canvas id="gyroCanvas"></canvas>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 2. ML TAB: Polar Vector Pointing & Hidden State Visualizer -->
+      <div class="tab-pane" id="mlTab">
+        <div class="ml-view-grid">
+          <!-- Polar Vector Visualizer (Pointing every ms) -->
+          <div class="ml-card vector-radar-card">
+            <div class="radar-header">
+              <span class="card-title">ML OUTPUT VECTOR // POINTING AT EVERY MS</span>
+              <span class="badge" id="mlStatusBadge">LIVE INFERENCE</span>
+            </div>
+            <div class="radar-body">
+              <div class="radar-canvas-box">
+                <canvas id="radarCanvas"></canvas>
+              </div>
+              <div class="vector-readouts">
+                <div class="readout-box">
+                  <span class="r-label">PREDICTED HEADING (θ)</span>
+                  <span class="r-val highlight-cyan" id="mlHeadingDeg">0.00°</span>
+                  <span class="r-sub" id="mlHeadingRad">0.000 rad</span>
+                </div>
+                <div class="readout-box">
+                  <span class="r-label">VECTOR MAGNITUDE |v|</span>
+                  <span class="r-val highlight-amber" id="mlMagnitude">0.00 m/s</span>
+                  <span class="r-sub" id="mlSpeedKmh">0.0 km/h</span>
+                </div>
+                <div class="readout-box">
+                  <span class="r-label">STEP DISPLACEMENT (dx, dy)</span>
+                  <span class="r-val" id="mlDisplacement">dx: 0.000m, dy: 0.000m</span>
+                  <span class="r-sub" id="mlStepTime">dt = 100ms</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- RNN Hidden State Representation -->
+          <div class="ml-card hidden-state-card">
+            <div class="radar-header">
+              <span class="card-title">RNN HIDDEN LAYER REPRESENTATION (h_t ∈ ℝ³²)</span>
+              <span class="state-meta" id="hiddenStateNorm">||h_t|| = 0.00</span>
+            </div>
+            <div class="hidden-state-body">
+              <div class="neurons-bar-grid" id="neuronsGrid">
+                <!-- Dynamically populated 32 hidden neuron bars -->
+              </div>
+              <div class="model-explanation">
+                <p><strong>Recurrent Node Equation:</strong> <code>h_t = tanh(W_ih · x_t + W_hh · h_{t-1} + b)</code></p>
+                <p><strong>Vector Mapping:</strong> <code>[v_x, v_y, |v|, cos θ, sin θ] = W_out · h_t + b_out</code></p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 3. DATA STREAM & SIMULATOR TAB -->
+      <div class="tab-pane" id="controlTab">
+        <div class="control-grid">
+          <!-- Replay Controls (IO-VNBD Dataset) -->
+          <div class="control-card">
+            <h4 class="control-title">IO-VNBD Dataset Driving Replay</h4>
+            <div class="dataset-select-row">
+              <label>Select Journey:</label>
+              <select id="selectDataset" class="custom-select">
+                <option value="S-S1">Driver A: S1 Journey (Coventry Roundabouts & Road)</option>
+                <option value="S-S2">Driver A: S2 Journey (Country & Motorway)</option>
+                <option value="S-M">Driver B: M Journey (Hard Brakes & Zig-Zags)</option>
+              </select>
+            </div>
+
+            <div class="replay-scrubber-row">
+              <input type="range" id="replayScrubber" min="0" max="1000" value="0" class="custom-slider">
+              <span class="scrub-label" id="scrubTime">00:00 / 05:00</span>
+            </div>
+
+            <div class="playback-btn-group">
+              <button class="btn btn-primary" id="btnPlayPause">Play Replay</button>
+              <button class="btn btn-outline" id="btnRestartReplay">Restart</button>
+              <div class="speed-selector">
+                <span>Speed:</span>
+                <button class="speed-btn active" data-speed="1">1x</button>
+                <button class="speed-btn" data-speed="2">2x</button>
+                <button class="speed-btn" data-speed="5">5x</button>
+                <button class="speed-btn" data-speed="10">10x</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Smartphone Live IMU Connect -->
+          <div class="control-card">
+            <h4 class="control-title">Live Smartphone IMU Bridge</h4>
+            <p class="card-desc">Stream live Accelerometer & Gyroscope sensors from your real smartphone browser.</p>
+            <div class="phone-connect-actions">
+              <button class="btn btn-outline" id="btnEnableDeviceSensors">Enable Device Sensors (Mobile)</button>
+              <div class="sensor-permission-status" id="permStatus">Ready</div>
+            </div>
+            <div class="qr-info">
+              <span>Open on same Wi-Fi: <code>http://&lt;your-ip&gt;:8000</code></span>
+            </div>
+          </div>
+
+          <!-- Interactive Manual Simulator -->
+          <div class="control-card">
+            <h4 class="control-title">Manual IMU Testing Joystick</h4>
+            <div class="slider-row">
+              <label>Forward Acceleration (Ay):</label>
+              <input type="range" id="simAy" min="-10" max="10" step="0.1" value="0" class="custom-slider">
+              <span id="simAyVal">0.0 m/s²</span>
+            </div>
+            <div class="slider-row">
+              <label>Lateral Yaw Rate (Gz):</label>
+              <input type="range" id="simGz" min="-3" max="3" step="0.05" value="0" class="custom-slider">
+              <span id="simGzVal">0.0 rad/s</span>
+            </div>
+            <div class="slider-actions">
+              <button class="btn btn-outline" id="btnResetSim">Zero Controls</button>
+              <button class="btn btn-outline" id="btnSimCircle">Drive Circle Demo</button>
+              <button class="btn btn-outline" id="btnSimFigure8">Drive Figure-8 Demo</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </footer>
+
+  <!-- Scripts -->
+  <script src="nn_engine.js"></script>
+  <script src="canvas_grid.js"></script>
+  <script src="sensor_chart.js"></script>
+  <script src="ml_radar.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

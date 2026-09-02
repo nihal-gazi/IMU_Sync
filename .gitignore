@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+
+# Large Datasets & Cache
+data/
+*.csv
+*.zip
+*.log
+
+# PyTorch checkpoints (we commit exported model_weights.json for web)
+*.pt
+*.pth
+*.onnx
+
+# IDE & OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
