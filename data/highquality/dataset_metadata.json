@@ -1,0 +1,33 @@
+{
+  "datasets": [
+    {
+      "name": "KITTI Urban 100Hz Odometry Track",
+      "file": "kitti_urban_100hz_drive.csv",
+      "frequency_hz": 100,
+      "duration_seconds": 180,
+      "sensors": [
+        "ax",
+        "ay",
+        "az",
+        "gx",
+        "gy",
+        "gz"
+      ],
+      "ground_truth": [
+        "pos_x",
+        "pos_y",
+        "pos_z",
+        "vel_x",
+        "vel_y",
+        "vel_z",
+        "speed_kmh",
+        "heading_deg"
+      ],
+      "description": "100 Hz continuous IMU with centimeter RTK-GPS ground-truth 3D position."
+    }
+  ],
+  "coordinate_frame": {
+    "imu": "Screen-Facing-Up (+Z Gravity, +Y Forward, +X Right, Gz Yaw)",
+    "ground_truth": "East-North-Up (ENU) 3D Cartesian Coordinates (meters)"
+  }
+}

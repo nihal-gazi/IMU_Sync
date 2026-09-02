@@ -21,19 +21,8 @@ os.makedirs(RES_DIR, exist_ok=True)
 
 
 def build_high_precision_benchmark_samples():
-    """
-    Builds clean, standardized, high-frequency IMU-to-XYZ Position benchmark files:
-    Columns:
-    - timestamp_s: Monotonic high-frequency timestamp (s)
-    - ax, ay, az: 3-axis Accelerometer specific force (m/s²)
-    - gx, gy, gz: 3-axis Gyroscope angular rate (rad/s)
-    - pos_x, pos_y, pos_z: Ground Truth 3D Position (meters)
-    - vel_x, vel_y, vel_z: Ground Truth 3D Velocity (m/s)
-    - roll_deg, pitch_deg, yaw_deg: Ground Truth 3D Euler Angles (deg)
-    """
     print(f"[HighQuality] Initializing dataset directories:\n  - {DEST_DIR}\n  - {RES_DIR}")
 
-    # Generate 100Hz Benchmark Test Tracks with Realistic Dynamics, Road Vibrations & Turns
     dt = 0.01 # 100 Hz sampling (10 ms)
     duration_s = 180 # 3 minutes per track
     n_samples = int(duration_s / dt)
@@ -48,7 +37,6 @@ def build_high_precision_benchmark_samples():
     for filename, description in tracks:
         print(f"[HighQuality] Generating 100Hz synchronized track: {filename} ({description})...")
         
-        # Ground Truth Trajectory Generation
         gt_x = np.zeros(n_samples)
         gt_y = np.zeros(n_samples)
         gt_z = np.zeros(n_samples)
@@ -56,6 +44,8 @@ def build_high_precision_benchmark_samples():
         gt_vx = np.zeros(n_samples)
         gt_vy = np.zeros(n_samples)
         gt_vz = np.zeros(n_samples)
+        
+        gt_headings = np.zeros(n_samples)
         
         true_ax = np.zeros(n_samples)
         true_ay = np.zeros(n_samples)
@@ -72,7 +62,7 @@ def build_high_precision_benchmark_samples():
         for i in range(n_samples):
             t = time_arr[i]
             
-            # Realistic velocity profile with acceleration, cruising, turns & red lights
+            # Realistic velocity and turning profile
             if t < 10.0:
                 target_a = 1.5 # Accelerating from 0 to 15 m/s (54 km/h)
                 turn_rate = 0.0
@@ -80,13 +70,13 @@ def build_high_precision_benchmark_samples():
                 target_a = 0.0 # Cruising at 15 m/s
                 turn_rate = 0.0
             elif t < 45.0:
-                target_a = -0.3 # Slowing down slightly into right turn
-                turn_rate = np.radians(9.0) # 90 deg right turn over 10s
+                target_a = -0.3 # Slowing down slightly into 90° right turn
+                turn_rate = np.radians(9.0) # 90 deg right turn (+X East) over 10s
             elif t < 70.0:
-                target_a = 0.0 # Cruising
+                target_a = 0.0 # Cruising East
                 turn_rate = 0.0
             elif t < 85.0:
-                target_a = -1.0 # Braking to a complete stop at traffic light
+                target_a = -1.0 # Braking to a stop at traffic light
                 turn_rate = 0.0
             elif t < 110.0:
                 target_a = 0.0 # Complete STOP (Zero-Velocity REST)
@@ -96,7 +86,7 @@ def build_high_precision_benchmark_samples():
                 turn_rate = 0.0
             elif t < 140.0:
                 target_a = 0.0 # Cruising
-                turn_rate = -np.radians(6.0) # Left turn
+                turn_rate = -np.radians(6.0) # 90 deg left turn back to North
             else:
                 target_a = 0.0
                 turn_rate = 0.0
@@ -106,11 +96,12 @@ def build_high_precision_benchmark_samples():
                 cur_v = 0.0 # Strict zero at light
                 
             heading += turn_rate * dt
+            gt_headings[i] = heading
             
-            # World velocity
+            # World velocity (East-North-Up)
             vx = cur_v * np.sin(heading)
             vy = cur_v * np.cos(heading)
-            vz = 0.05 * np.sin(t * 0.5) # Gentle road gradient
+            vz = 0.05 * np.sin(t * 0.5)
             
             cur_x += vx * dt
             cur_y += vy * dt
@@ -128,9 +119,9 @@ def build_high_precision_benchmark_samples():
             road_noise_ay = np.random.normal(0.0, 0.20)
             road_noise_az = np.random.normal(0.0, 0.35)
             
-            true_ax[i] = (cur_v * turn_rate) + road_noise_ax # Lateral centripetal acceleration
-            true_ay[i] = target_a + road_noise_ay # Longitudinal acceleration
-            true_az[i] = 9.81 + road_noise_az # Gravity + vertical road bumps
+            true_ax[i] = (cur_v * turn_rate) + road_noise_ax
+            true_ay[i] = target_a + road_noise_ay
+            true_az[i] = 9.81 + road_noise_az
             
             gyro_noise = np.random.normal(0.0, 0.005, 3)
             true_gx[i] = gyro_noise[0]
@@ -153,7 +144,7 @@ def build_high_precision_benchmark_samples():
             'vel_z': gt_vz.round(3),
             'speed_mps': np.hypot(gt_vx, gt_vy).round(3),
             'speed_kmh': (np.hypot(gt_vx, gt_vy) * 3.6).round(2),
-            'heading_deg': (np.degrees(heading) % 360).round(2)
+            'heading_deg': (np.degrees(gt_headings) % 360).round(2)
         })
 
         out_path1 = os.path.join(DEST_DIR, filename)
@@ -162,7 +153,6 @@ def build_high_precision_benchmark_samples():
         df.to_csv(out_path2, index=False)
         print(f"[HighQuality] Saved {filename} ({len(df):,} rows, {os.path.getsize(out_path1):,} bytes)")
 
-    # Save Metadata Documentation
     meta = {
         "datasets": [
             {
@@ -173,24 +163,6 @@ def build_high_precision_benchmark_samples():
                 "sensors": ["ax", "ay", "az", "gx", "gy", "gz"],
                 "ground_truth": ["pos_x", "pos_y", "pos_z", "vel_x", "vel_y", "vel_z", "speed_kmh", "heading_deg"],
                 "description": "100 Hz continuous IMU with centimeter RTK-GPS ground-truth 3D position."
-            },
-            {
-                "name": "OxIOD Handheld 100Hz MoCap Track",
-                "file": "oxiod_handheld_100hz_mocap.csv",
-                "frequency_hz": 100,
-                "duration_seconds": 180,
-                "sensors": ["ax", "ay", "az", "gx", "gy", "gz"],
-                "ground_truth": ["pos_x", "pos_y", "pos_z", "vel_x", "vel_y", "vel_z", "speed_kmh", "heading_deg"],
-                "description": "100 Hz smartphone IMU with millimeter Vicon optical motion capture 3D coordinates."
-            },
-            {
-                "name": "Highway High-Speed 100Hz Track",
-                "file": "highway_highspeed_100hz_track.csv",
-                "frequency_hz": 100,
-                "duration_seconds": 180,
-                "sensors": ["ax", "ay", "az", "gx", "gy", "gz"],
-                "ground_truth": ["pos_x", "pos_y", "pos_z", "vel_x", "vel_y", "vel_z", "speed_kmh", "heading_deg"],
-                "description": "High-speed highway maneuvers (0-100 km/h launches, lane changes, emergency braking)."
             }
         ],
         "coordinate_frame": {
@@ -203,8 +175,6 @@ def build_high_precision_benchmark_samples():
         json.dump(meta, f, indent=2)
     with open(os.path.join(RES_DIR, "dataset_metadata.json"), "w") as f:
         json.dump(meta, f, indent=2)
-
-    print(f"\n[HighQuality] High-quality IMU-to-XYZ datasets successfully created in:\n  - {DEST_DIR}\n  - {RES_DIR}")
 
 
 if __name__ == "__main__":
