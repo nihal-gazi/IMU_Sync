@@ -88,6 +88,13 @@ export default function BottomPanel({
               Transformer
             </button>
             <button
+              className={`pill-btn ${modelMode === 'sih_mlp' ? 'active' : ''}`}
+              onClick={() => setModelMode('sih_mlp')}
+              title="SIH Multi-Head Inertial MLP (Dense 120 -> [dx, dy, v, delta_theta])"
+            >
+              SIH MLP
+            </button>
+            <button
               className={`pill-btn ${modelMode === 'ekf' ? 'active' : ''}`}
               onClick={() => setModelMode('ekf')}
               title="Extended Kalman Filter with ZUPT and Non-Holonomic Constraint"
@@ -100,13 +107,6 @@ export default function BottomPanel({
               title="Pure Classical Dead-Reckoning Math"
             >
               Physics DR
-            </button>
-            <button
-              className={`pill-btn ${modelMode === 'rnn' ? 'active' : ''}`}
-              onClick={() => setModelMode('rnn')}
-              title="Sequential Step RNN"
-            >
-              RNN
             </button>
           </div>
 

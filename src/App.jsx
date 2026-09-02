@@ -346,7 +346,77 @@ export default function App() {
         });
       }
       // =======================================================================
-      // MODE C: 100Hz Neural Transformer & AI Pipeline (TLIO / RNN / MLP)
+      // MODE C: SIH Multi-Head Inertial MLP (Dense 120 -> [dx, dy, v, delta_theta])
+      // =======================================================================
+      else if (curMode === 'sih_mlp') {
+        const win = windowBufferRef.current;
+        win.push(imu);
+        if (win.length > 20) win.shift();
+
+        timeSinceLast1sUpdateRef.current += dt;
+
+        // 5Hz Inference Step (every 200ms) with 20-sample sliding window
+        if (timeSinceLast1sUpdateRef.current >= 0.2 && win.length >= 20) {
+          timeSinceLast1sUpdateRef.current = 0.0;
+          stepCountRef.current++;
+
+          const sihOut = await onnxInferenceService.predictSihMlp(win.slice(-20));
+
+          if (sihOut.isMoving) {
+            headingRadRef.current += sihOut.deltaThetaDeg * (Math.PI / 180.0);
+            curSpeedMpsRef.current = sihOut.speedMps;
+
+            const motion = motionState.current;
+            motion.posX += sihOut.dx;
+            motion.posY += sihOut.dy;
+            motion.vx = sihOut.dx / 0.2;
+            motion.vy = sihOut.dy / 0.2;
+            motion.speed = Math.hypot(sihOut.dx, sihOut.dy);
+            motion.speedKmh = sihOut.speedKmh;
+
+            const trail = trailRef.current;
+            trail.push({ x: motion.posX, y: motion.posY, speed: motion.speedKmh });
+            if (trail.length > 3000) trail.shift();
+          } else {
+            curSpeedMpsRef.current = 0.0;
+            const motion = motionState.current;
+            motion.vx = 0.0;
+            motion.vy = 0.0;
+            motion.speed = 0.0;
+            motion.speedKmh = 0.0;
+          }
+
+          setTelemetry({
+            posX: motionState.current.posX,
+            posY: motionState.current.posY,
+            vx: motionState.current.vx,
+            vy: motionState.current.vy,
+            speedKmh: curSpeedMpsRef.current * 3.6,
+            aFwd: (curSpeedMpsRef.current - 0) / 0.2,
+            latencyMs: sihOut.latencyMs,
+            pitchDeg: alignResult.pitchDeg,
+            rollDeg: alignResult.rollDeg,
+            headingDeg: ((headingRadRef.current * 180.0) / Math.PI) % 360,
+            isMoving: sihOut.isMoving
+          });
+
+          setTransformerMetrics({
+            lastPredDx: sihOut.dx,
+            lastPredDy: sihOut.dy,
+            aFwd: 0.0,
+            fwdDispMeters: Math.hypot(sihOut.dx, sihOut.dy),
+            stepCount: stepCountRef.current,
+            lastUpdateSec: Math.round(performance.now() / 1000),
+            pitchDeg: alignResult.pitchDeg,
+            rollDeg: alignResult.rollDeg,
+            rawGyr: alignResult.rawGyr || [0, 0, 0],
+            alignedGyr: [gx, gy, gz],
+            isMoving: sihOut.isMoving
+          });
+        }
+      }
+      // =======================================================================
+      // MODE D: 100Hz Neural Transformer (Exp 1 TLIO 2-Stage Pipeline)
       // =======================================================================
       else {
         // Continuous Gyroscope Heading Integration
