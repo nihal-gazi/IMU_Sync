@@ -134,7 +134,7 @@ export default function App() {
 
   useEffect(() => {
     async function setup() {
-      console.log('[IMU-Sync] Initializing 100Hz Unified Multi-Task Transformer v0.1.9...');
+      console.log('[IMU-Sync] Initializing 100Hz 2-Stage TLIO Transformer v0.1.10 (Exp 1)...');
       const ready = await onnxInferenceService.init('/models');
       setIsONNXReady(ready);
       setScalers(onnxInferenceService.scalers);

@@ -35,7 +35,7 @@ export default function TopNav({
         <div className="logo-dot"></div>
         <div className="brand-text">
           <span className="brand-title">IMU-SYNC</span>
-          <span className="brand-sub">v0.1.9 // 100Hz UNIFIED MULTI-TASK TRANSFORMER (WASM)</span>
+          <span className="brand-sub">v0.1.10 // 100Hz 2-STAGE TLIO TRANSFORMER (EXP_1)</span>
         </div>
       </div>
 

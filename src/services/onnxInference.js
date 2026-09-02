@@ -1,18 +1,18 @@
 /**
- * ONNX Runtime Web Inference Service for 100Hz Unified Multi-Task Transformer
- * Single Forward Pass -> [is_rest, is_moving] logits + [a_x, a_y] dual accelerations
- * With Fallback to 2-Stage [motion_classifier.onnx + tlio_transformer.onnx]
+ * ONNX Runtime Web Inference Service for Experiment 1 (2-Stage Kinematic System)
+ * Stage 1: RestMovingClassifierMLP (Zero-Velocity Stationary Detector)
+ * Stage 2: IMUTransformerTLIO (Forward Acceleration Δv Estimator)
+ * Calibrated with k_accel = 1.1379, k_gyro = 0.9794
  */
 
 import * as ort from 'onnxruntime-web';
 
 class ONNXInferenceService {
   constructor() {
-    this.sessionUnified = null;
     this.sessionClassifier = null;
     this.sessionTransformer = null;
     this.isReady = false;
-    this.mode = 'unified'; // 'unified' | 'tlio'
+    this.mode = 'tlio'; // Experiment 1 2-Stage Kinematic Model
 
     this.scalers = {
       features: {
@@ -21,13 +21,13 @@ class ONNXInferenceService {
         std: [1.0, 1.0, 0.50, 0.05, 0.05, 0.05]
       },
       targets: {
-        names: ['a_lateral', 'a_forward'],
+        names: ['dv_lateral', 'dv_forward'],
         mean: [0.0, 0.0],
         std: [1.0, 0.85]
       },
       calibration: {
-        k_accel: 0.9000,
-        k_gyro: 0.9850
+        k_accel: 1.1379,
+        k_gyro: 0.9794
       }
     };
   }
@@ -37,35 +37,21 @@ class ONNXInferenceService {
       ort.env.wasm.numThreads = 1;
       ort.env.wasm.simd = true;
 
-      // 1. Fetch Scaler Parameters
+      // 1. Fetch Scaler & Calibration Parameters
       try {
         const scalerRes = await fetch(`${modelsBasePath}/scaler_params.json`);
         if (scalerRes.ok) {
           const scalerJson = await scalerRes.json();
           if (scalerJson.features && scalerJson.targets) {
             this.scalers = scalerJson;
-            console.log('[ONNX Service] 100Hz Scaler parameters loaded with calibration factors:', this.scalers.calibration);
+            console.log('[ONNX Service] Exp 1 Scaler parameters loaded with calibration factors:', this.scalers.calibration);
           }
         }
       } catch (e) {
         console.warn('[ONNX Service] Using fallback scalers:', e);
       }
 
-      // 2. Load Unified Multi-Task Transformer (Primary Engine)
-      try {
-        const unifiedRes = await fetch(`${modelsBasePath}/unified_transformer.onnx`);
-        if (unifiedRes.ok) {
-          const buffer = await unifiedRes.arrayBuffer();
-          this.sessionUnified = await ort.InferenceSession.create(new Uint8Array(buffer), {
-            executionProviders: ['wasm']
-          });
-          console.log('[ONNX Service] Unified Multi-Task Transformer ONNX loaded (Primary Engine).');
-        }
-      } catch (err) {
-        console.warn('[ONNX Service] Unified Transformer loading fallback:', err);
-      }
-
-      // 3. Fallback: Stage 1 Motion Classifier (MLP)
+      // 2. Load Stage 1 Motion Classifier (Exp 1 MLP)
       try {
         const clsRes = await fetch(`${modelsBasePath}/motion_classifier.onnx`);
         if (clsRes.ok) {
@@ -73,13 +59,13 @@ class ONNXInferenceService {
           this.sessionClassifier = await ort.InferenceSession.create(new Uint8Array(clsBuffer), {
             executionProviders: ['wasm']
           });
-          console.log('[ONNX Service] Stage 1 Motion Classifier ONNX loaded.');
+          console.log('[ONNX Service] Exp 1 Stage 1 Motion Classifier ONNX loaded.');
         }
       } catch (err) {
         console.warn('[ONNX Service] Classifier loading error:', err);
       }
 
-      // 4. Fallback: Stage 2 Acceleration Transformer
+      // 3. Load Stage 2 Acceleration Transformer (Exp 1 TLIO)
       try {
         const transformerRes = await fetch(`${modelsBasePath}/tlio_transformer.onnx`);
         if (transformerRes.ok) {
@@ -87,13 +73,13 @@ class ONNXInferenceService {
           this.sessionTransformer = await ort.InferenceSession.create(new Uint8Array(transBuffer), {
             executionProviders: ['wasm']
           });
-          console.log('[ONNX Service] Stage 2 Acceleration Transformer ONNX loaded.');
+          console.log('[ONNX Service] Exp 1 Stage 2 Acceleration Transformer ONNX loaded.');
         }
       } catch (err) {
         console.warn('[ONNX Service] Transformer loading error:', err);
       }
 
-      this.isReady = !!(this.sessionUnified || (this.sessionClassifier && this.sessionTransformer));
+      this.isReady = !!(this.sessionClassifier && this.sessionTransformer);
       return this.isReady;
     } catch (err) {
       console.error('[ONNX Service] Failed to initialize ONNX sessions:', err);
@@ -127,7 +113,7 @@ class ONNXInferenceService {
   }
 
   /**
-   * Runs 100Hz Unified Multi-Task Acceleration & Motion Inference
+   * Runs Experiment 1 2-Stage Gated Acceleration Inference
    * @param {Array<Array<number>>} rawWindow - 10 consecutive 6-axis IMU samples [10, 6]
    * @returns {Promise<{isMoving: boolean, aFwd: number, aLat: number, latencyMs: number}>}
    */
@@ -147,49 +133,30 @@ class ONNXInferenceService {
     let isMoving = true;
     let aFwd = 0.0;
     let aLat = 0.0;
-    const kAccel = (this.scalers.calibration && this.scalers.calibration.k_accel) ? this.scalers.calibration.k_accel : 1.0;
+    const kAccel = (this.scalers.calibration && this.scalers.calibration.k_accel) ? this.scalers.calibration.k_accel : 1.1379;
 
     try {
       const inputTensor = new ort.Tensor('float32', flatNormWindow, [1, windowSize, 6]);
 
-      // 1. PRIMARY: Single Unified Multi-Task Transformer
-      if (this.sessionUnified) {
-        const feeds = { input_window: inputTensor };
-        const results = await this.sessionUnified.run(feeds);
-        
-        // Output 1: Motion Classification Logits [is_rest, is_moving]
-        const logits = results.motion_logits.data;
+      // STAGE 1: Classify REST vs MOVING
+      if (this.sessionClassifier) {
+        const clsFeeds = { input_window: inputTensor };
+        const clsResults = await this.sessionClassifier.run(clsFeeds);
+        const logits = clsResults.motion_logits.data;
         isMoving = logits[1] > logits[0];
+      }
 
-        // Output 2: 2D Physical Accelerations [a_x (lateral), a_y (forward)]
-        if (isMoving) {
-          const accData = results.acceleration_2d.data;
-          const denorm = this.denormalizeAcceleration([accData[0], accData[1]]);
-          aLat = denorm[0];
-          aFwd = denorm[1] * kAccel;
-        } else {
-          aLat = 0.0;
-          aFwd = 0.0;
-        }
-      } 
-      // 2. FALLBACK: 2-Stage Sequential Models
-      else {
-        if (this.sessionClassifier) {
-          const clsFeeds = { input_window: inputTensor };
-          const clsResults = await this.sessionClassifier.run(clsFeeds);
-          const logits = clsResults.motion_logits.data;
-          isMoving = logits[1] > logits[0];
-        }
-
-        if (isMoving && this.sessionTransformer) {
-          const feeds = { input_window: inputTensor };
-          const results = await this.sessionTransformer.run(feeds);
-          const outData = results.displacement_1s.data;
-          const denorm = this.denormalizeAcceleration([outData[0], outData[1]]);
-          aFwd = denorm[1] * kAccel;
-        } else {
-          aFwd = 0.0;
-        }
+      // STAGE 2: If MOVING -> Predict Forward Acceleration; If REST -> a = 0.0
+      if (isMoving && this.sessionTransformer) {
+        const feeds = { input_window: inputTensor };
+        const results = await this.sessionTransformer.run(feeds);
+        const outData = results.displacement_1s.data;
+        const denorm = this.denormalizeAcceleration([outData[0], outData[1]]);
+        aLat = denorm[0];
+        aFwd = denorm[1] * kAccel;
+      } else {
+        aLat = 0.0;
+        aFwd = 0.0;
       }
     } catch (err) {
       console.warn('[ONNX Service] Inference error:', err);
