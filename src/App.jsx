@@ -3,11 +3,11 @@ import TopNav from './components/TopNav';
 import InfiniteCanvas from './components/InfiniteCanvas';
 import BottomPanel from './components/BottomPanel';
 import { onnxInferenceService } from './services/onnxInference';
+import { tlioEKFEngine } from './services/tlioEKF';
 
 export default function App() {
   const [isONNXReady, setIsONNXReady] = useState(false);
-  const [modelMode, setModelMode] = useState('rnn'); // 'rnn' | 'mlp'
-  // Default to PHONE sensor as requested
+  const [modelMode, setModelMode] = useState('tlio'); // 'tlio' | 'rnn' | 'mlp'
   const [source, setSource] = useState('phone'); // 'phone' | 'replay' | 'sim'
   const [activeTab, setActiveTab] = useState('sensors');
   const [isCollapsed, setIsCollapsed] = useState(false);
@@ -28,6 +28,16 @@ export default function App() {
     latencyMs: 0.4
   });
 
+  // EKF Metrics State
+  const [ekfMetrics, setEkfMetrics] = useState({
+    lastPredDx: 0,
+    lastPredDy: 0,
+    lastDeltaPx: 0,
+    lastDeltaPy: 0,
+    kalmanGain: 0.67,
+    correctionCount: 0
+  });
+
   // Simulator & Mobile State
   const [simAy, setSimAy] = useState(0);
   const [simGz, setSimGz] = useState(0);
@@ -35,14 +45,15 @@ export default function App() {
   const [mobileSensorStatus, setMobileSensorStatus] = useState('Active (Listening)');
   const [scalers, setScalers] = useState(onnxInferenceService.scalers);
 
-  // Mutable refs for 60fps telemetry & inference loop
+  // High-frequency mutable motion state for 60fps canvas renderer
   const motionState = useRef({
     posX: 0,
     posY: 0,
     vx: 0,
     vy: 0,
     speed: 0,
-    speedKmh: 0
+    speedKmh: 0,
+    headingRad: 0
   });
 
   const trailRef = useRef([]);
@@ -61,6 +72,10 @@ export default function App() {
     new Array(BUFFER_LEN).fill(0),
     new Array(BUFFER_LEN).fill(0)
   ]);
+
+  // 1-Second Sliding Window Buffer (10 samples @ 10Hz)
+  const windowBufferRef = useRef([]);
+  const timeSinceLast1sUpdateRef = useRef(0.0);
 
   const currentImuRef = useRef([0, 0, 9.81, 0, 0, 0]);
   const phoneImuRef = useRef([0, 0, 9.81, 0, 0, 0]);
@@ -107,7 +122,7 @@ export default function App() {
   // Initialize ONNX Runtime Web, Datasets & Phone Sensors
   useEffect(() => {
     async function setup() {
-      console.log('[IMU-Sync] Initializing ONNX Runtime Web v0.0.1...');
+      console.log('[IMU-Sync] Initializing TLIO Transformer ONNX Runtime Web v0.1.0...');
       const ready = await onnxInferenceService.init('/models');
       setIsONNXReady(ready);
       setScalers(onnxInferenceService.scalers);
@@ -133,7 +148,7 @@ export default function App() {
     onnxInferenceService.setMode(modelMode);
   }, [modelMode]);
 
-  // Main 60 FPS Telemetry & Inference Loop
+  // Main 60 FPS Telemetry, High-Frequency Kinematic Propagation & 1-Second EKF Correction Loop
   useEffect(() => {
     let animId;
     let hudCounter = 0;
@@ -148,12 +163,10 @@ export default function App() {
       const frames = datasetFramesRef.current;
       const curSource = sourceRef.current;
 
-      // 1. Source: Live Phone Sensors (Default)
+      // 1. Determine Source
       if (curSource === 'phone') {
         imu = phoneImuRef.current;
-      }
-      // 2. Source: Dataset Replay
-      else if (curSource === 'replay' && frames && frames.length > 0) {
+      } else if (curSource === 'replay' && frames && frames.length > 0) {
         if (isPlayingRef.current) {
           replayIndexRef.current = (replayIndexRef.current + speedMultRef.current) % frames.length;
           setReplayIndex(replayIndexRef.current);
@@ -162,9 +175,7 @@ export default function App() {
         if (row) {
           imu = [row.ax, row.ay, row.az, row.gx, row.gy, row.gz];
         }
-      } 
-      // 3. Source: Simulator & Manual Joystick
-      else if (curSource === 'sim') {
+      } else if (curSource === 'sim') {
         const dMode = demoModeRef.current;
         if (dMode === 'circle') {
           demoTimeRef.current += dt;
@@ -220,37 +231,63 @@ export default function App() {
       gyr[1].push(gy); gyr[1].shift();
       gyr[2].push(gz); gyr[2].shift();
 
-      // 3. Run ONNX Inference: Predicts [vx, vy]
-      const pred = await onnxInferenceService.predictStep(imu);
+      // 3. High-Frequency Strapdown Kinematic Propagation (Every Frame)
+      const kin = tlioEKFEngine.predictKinematicStep(imu, dt);
 
-      // 4. Update Particle Position: px = px + vx, py = py + vy (Direct Velocity Accumulation)
+      // Append to 1-second sliding window buffer (10 samples @ 10Hz)
+      const win = windowBufferRef.current;
+      win.push(imu);
+      if (win.length > 10) win.shift();
+
+      timeSinceLast1sUpdateRef.current += dt;
+      let lastLatency = 0.4;
+
+      // 4. TLIO: Every 1.0 Second (1000ms), Execute Transformer & Apply EKF Measurement Correction
+      if (timeSinceLast1sUpdateRef.current >= 1.0 && win.length >= 10) {
+        timeSinceLast1sUpdateRef.current = 0.0;
+
+        // Run ONNX Transformer on 1-second window
+        const pred = await onnxInferenceService.predict1sDisplacement(win);
+        lastLatency = pred.latencyMs;
+
+        // Apply EKF Correction
+        const corr = tlioEKFEngine.applyTransformerCorrection(pred.dx, pred.dy);
+
+        setEkfMetrics({
+          lastPredDx: pred.dx,
+          lastPredDy: pred.dy,
+          lastDeltaPx: corr.deltaPosX,
+          lastDeltaPy: corr.deltaPosY,
+          kalmanGain: corr.kalmanGainPos,
+          correctionCount: corr.correctionCount
+        });
+      }
+
+      // 5. Update Motion State for Canvas Renderer
       const motion = motionState.current;
-      motion.vx = pred.vx;
-      motion.vy = pred.vy;
-      motion.speed = pred.speed;
-      motion.speedKmh = pred.speedKmh;
+      motion.posX = tlioEKFEngine.posX;
+      motion.posY = tlioEKFEngine.posY;
+      motion.vx = tlioEKFEngine.vx;
+      motion.vy = tlioEKFEngine.vy;
+      motion.speed = Math.hypot(tlioEKFEngine.vx, tlioEKFEngine.vy);
+      motion.speedKmh = motion.speed * 3.6;
+      motion.headingRad = tlioEKFEngine.headingRad;
 
-      // Direct integration
-      motion.posX += pred.vx;
-      motion.posY += pred.vy;
-
-      hiddenStateRef.current = pred.hiddenState;
-
-      // 5. Append to Trail
+      // 6. Append to Path Trail
       const trail = trailRef.current;
       trail.push({ x: motion.posX, y: motion.posY, speed: motion.speedKmh });
       if (trail.length > 3000) trail.shift();
 
-      // 6. Update HUD Telemetry
+      // 7. Update HUD Telemetry
       hudCounter++;
       if (hudCounter % 4 === 0) {
         setTelemetry({
           posX: motion.posX,
           posY: motion.posY,
-          vx: pred.vx,
-          vy: pred.vy,
+          vx: motion.vx,
+          vy: motion.vy,
           speedKmh: motion.speedKmh,
-          latencyMs: pred.latencyMs
+          latencyMs: lastLatency
         });
       }
 
@@ -276,9 +313,12 @@ export default function App() {
 
   const handleClearTrail = () => {
     trailRef.current = [];
+    tlioEKFEngine.reset();
     const motion = motionState.current;
     motion.posX = 0;
     motion.posY = 0;
+    motion.vx = 0;
+    motion.vy = 0;
     if (recenterRef.current) recenterRef.current();
   };
 
@@ -286,7 +326,6 @@ export default function App() {
     setReplayIndex(0);
     replayIndexRef.current = 0;
     handleClearTrail();
-    onnxInferenceService.resetHiddenState();
   };
 
   const handleEnableMobileSensors = async () => {
@@ -312,7 +351,7 @@ export default function App() {
 
   return (
     <div className="app-container">
-      {/* Top Telemetry Navigation with v0.0.1 */}
+      {/* Top Telemetry Navigation with v0.1.0 */}
       <TopNav
         modelMode={modelMode}
         posX={telemetry.posX}
@@ -349,6 +388,7 @@ export default function App() {
         motionState={motionState}
         hiddenStateRef={hiddenStateRef}
         scalers={scalers}
+        ekfMetrics={ekfMetrics}
         isONNXReady={isONNXReady}
         isPlaying={isPlaying}
         setIsPlaying={setIsPlaying}

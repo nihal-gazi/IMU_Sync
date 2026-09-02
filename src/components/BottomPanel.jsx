@@ -18,6 +18,7 @@ export default function BottomPanel({
   motionState,
   hiddenStateRef,
   scalers,
+  ekfMetrics,
   isONNXReady,
   // Control Panel Props
   isPlaying,
@@ -62,7 +63,7 @@ export default function BottomPanel({
             onClick={() => { setActiveTab('ml'); setIsCollapsed(false); }}
           >
             <Radio size={15} />
-            ML Vector & State
+            TLIO & ML Vector State
           </button>
           <button
             className={`tab-btn ${activeTab === 'controls' ? 'active' : ''}`}
@@ -76,18 +77,27 @@ export default function BottomPanel({
         <div className="tab-actions">
           {/* Architecture Selector Pill */}
           <div className="model-pill-selector">
-            <span className="pill-label">Architecture:</span>
+            <span className="pill-label">Model:</span>
+            <button
+              className={`pill-btn ${modelMode === 'tlio' ? 'active' : ''}`}
+              onClick={() => setModelMode('tlio')}
+              title="TLIO: 1-Second Transformer + High-Frequency EKF"
+            >
+              TLIO (Transformer)
+            </button>
             <button
               className={`pill-btn ${modelMode === 'rnn' ? 'active' : ''}`}
               onClick={() => setModelMode('rnn')}
+              title="Sequential Step RNN"
             >
-              RNN (Sequential)
+              RNN
             </button>
             <button
               className={`pill-btn ${modelMode === 'mlp' ? 'active' : ''}`}
               onClick={() => setModelMode('mlp')}
+              title="Stateless Frame MLP"
             >
-              MLP (Stateless)
+              MLP
             </button>
           </div>
 
@@ -102,7 +112,7 @@ export default function BottomPanel({
         </div>
       </div>
 
-      {/* Tab Content Panes (Kept mounted with display: block/none to preserve canvas streams) */}
+      {/* Tab Content Panes */}
       {!isCollapsed && (
         <div className="tab-content-wrapper">
           <div style={{ display: activeTab === 'sensors' ? 'block' : 'none', height: '100%' }}>
@@ -118,6 +128,8 @@ export default function BottomPanel({
               motionState={motionState}
               hiddenStateRef={hiddenStateRef}
               scalers={scalers}
+              ekfMetrics={ekfMetrics}
+              modelMode={modelMode}
               isONNXReady={isONNXReady}
             />
           </div>

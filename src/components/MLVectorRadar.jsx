@@ -4,6 +4,8 @@ export default function MLVectorRadar({
   motionState,
   hiddenStateRef,
   scalers,
+  ekfMetrics,
+  modelMode,
   isONNXReady
 }) {
   const radarCanvasRef = useRef(null);
@@ -36,7 +38,7 @@ export default function MLVectorRadar({
         const radius = Math.min(cx, cy) - 12;
 
         if (radius > 10) {
-          // 1. Concentric Circles
+          // 1. Concentric Range Circles
           ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
           ctx.lineWidth = 1;
           for (const r of [0.33, 0.66, 1.0]) {
@@ -112,7 +114,7 @@ export default function MLVectorRadar({
           // Vector Arrowhead
           const headLen = 9;
           const headAngle = Math.PI / 6;
-          const stemAngle = Math.atan2(tipY - cy, tipX - cx);
+          const stemAngle = Math.atan2(tipY - cy, tipX - sx || 0);
 
           ctx.fillStyle = '#ffb800';
           ctx.beginPath();
@@ -147,9 +149,15 @@ export default function MLVectorRadar({
 
   const motion = motionState?.current || { posX: 0, posY: 0, vx: 0, vy: 0, speed: 0, speedKmh: 0 };
   const hidden = hiddenStateRef?.current || new Float32Array(32);
-  let normSq = 0;
-  for (let i = 0; i < hidden.length; i++) normSq += hidden[i] * hidden[i];
-  const hiddenNorm = Math.sqrt(normSq);
+  const ekf = ekfMetrics || {
+    lastPredDx: 0,
+    lastPredDy: 0,
+    lastDeltaPx: 0,
+    lastDeltaPy: 0,
+    kalmanGain: 0.67,
+    correctionCount: 0,
+    timeSinceSec: 0.1
+  };
 
   const featScalers = scalers?.features || {
     names: ['Ax', 'Ay', 'Az', 'Gx', 'Gy', 'Gz'],
@@ -158,18 +166,18 @@ export default function MLVectorRadar({
   };
 
   const targetScalers = scalers?.targets || {
-    names: ['Vx', 'Vy'],
-    mean: [0.12, 1.84],
-    std: [1.25, 2.10]
+    names: ['dx_1s', 'dy_1s'],
+    mean: [0.0002, -0.215],
+    std: [1.483, 1.852]
   };
 
   return (
     <div className="ml-view-grid">
-      {/* 1. Vector Pointing Towards (p.x, p.y) */}
+      {/* 1. Vector Pointing Towards (p.x, p.y) & Position Metrics */}
       <div className="ml-card">
         <div className="radar-header">
           <span className="card-title">PARTICLE VECTOR // POINTING TOWARDS (Px, Py)</span>
-          <span className="badge">{isONNXReady ? 'ONNX LIVE' : 'INITIALIZING'}</span>
+          <span className="badge">{isONNXReady ? 'TLIO TRANSFORMER ACTIVE' : 'INITIALIZING'}</span>
         </div>
         <div className="radar-body">
           <div className="radar-canvas-box">
@@ -181,33 +189,51 @@ export default function MLVectorRadar({
               <span className="r-val highlight-cyan">
                 Px: {(motion.posX || 0).toFixed(2)} m, Py: {(motion.posY || 0).toFixed(2)} m
               </span>
-              <span className="r-sub">Arrow points along (Px, Py) — Default North at origin</span>
+              <span className="r-sub">Default North at origin (0, 0)</span>
             </div>
             <div className="readout-box">
-              <span className="r-label">INCOMING MODEL VELOCITY (Vx, Vy)</span>
+              <span className="r-label">KINEMATIC VELOCITY (Vx, Vy)</span>
               <span className="r-val highlight-amber">
-                net.vx: {(motion.vx || 0).toFixed(2)}, net.vy: {(motion.vy || 0).toFixed(2)} m/s
+                Vx: {(motion.vx || 0).toFixed(2)}, Vy: {(motion.vy || 0).toFixed(2)} m/s
               </span>
               <span className="r-sub">Speed: {(motion.speedKmh || 0).toFixed(1)} km/h</span>
             </div>
             <div className="readout-box">
-              <span className="r-label">MOTION UPDATE FORMULA</span>
-              <span className="r-val">px = px + net.vx,  py = py + net.vy</span>
-              <span className="r-sub">Direct vector accumulation</span>
+              <span className="r-label">TLIO SYSTEM MODE</span>
+              <span className="r-val">High-Freq Kinematics + 1s Transformer EKF</span>
+              <span className="r-sub">Tight-coupling drift elimination</span>
             </div>
           </div>
         </div>
       </div>
 
-      {/* 2. Normalization Factors & RNN Hidden State */}
+      {/* 2. 1-Second TLIO Transformer & EKF Correction Metrics */}
       <div className="ml-card">
         <div className="radar-header">
-          <span className="card-title">NORMALIZATION FACTORS & RNN HIDDEN STATE</span>
-          <span className="state-meta">||h_t|| = {hiddenNorm.toFixed(2)}</span>
+          <span className="card-title">1-SEC TRANSFORMER & EKF CORRECTION STATUS</span>
+          <span className="state-meta">EKF Updates: #{ekf.correctionCount || 0}</span>
+        </div>
+
+        {/* EKF Telemetry Readout Grid */}
+        <div className="ekf-telemetry-grid">
+          <div className="readout-box">
+            <span className="r-label">1s TRANSFORMER DISPLACEMENT (Δx, Δy)</span>
+            <span className="r-val highlight-cyan">
+              Δx: {(ekf.lastPredDx || 0).toFixed(2)}m, Δy: {(ekf.lastPredDy || 0).toFixed(2)}m
+            </span>
+            <span className="r-sub">Regressed from 10-sample IMU attention window</span>
+          </div>
+          <div className="readout-box">
+            <span className="r-label">1s EKF CORRECTION DELTA (δPx, δPy)</span>
+            <span className="r-val highlight-amber">
+              δPx: {(ekf.lastDeltaPx >= 0 ? '+' : '') + (ekf.lastDeltaPx || 0).toFixed(3)}m, δPy: {(ekf.lastDeltaPy >= 0 ? '+' : '') + (ekf.lastDeltaPy || 0).toFixed(3)}m
+            </span>
+            <span className="r-sub">Kalman Gain K_pos: {(ekf.kalmanGain || 0.67).toFixed(2)}</span>
+          </div>
         </div>
 
         {/* Normalization Factors Table */}
-        <div className="scalers-table-box">
+        <div className="scalers-table-box" style={{ marginTop: '6px' }}>
           <table className="scalers-table">
             <thead>
               <tr>
@@ -226,32 +252,13 @@ export default function MLVectorRadar({
               ))}
               {targetScalers.names.map((name, idx) => (
                 <tr key={name} className="target-scaler-row">
-                  <td><strong style={{ color: 'var(--accent-cyan)' }}>{name} (Target)</strong></td>
+                  <td><strong style={{ color: 'var(--accent-cyan)' }}>{name} (1s Target)</strong></td>
                   <td>{(targetScalers.mean[idx] || 0).toFixed(4)}</td>
                   <td>{(targetScalers.std[idx] || 1).toFixed(4)}</td>
                 </tr>
               ))}
             </tbody>
           </table>
-        </div>
-
-        {/* 32 Hidden Neurons */}
-        <div className="neurons-bar-grid" style={{ marginTop: '8px' }}>
-          {Array.from({ length: 32 }).map((_, i) => {
-            const val = hidden[i] || 0;
-            const heightPct = Math.min(Math.max(Math.abs(val) * 100, 5), 100);
-            const bgColor = val >= 0
-              ? `rgba(0, 240, 255, ${0.4 + Math.abs(val) * 0.6})`
-              : `rgba(255, 0, 127, ${0.4 + Math.abs(val) * 0.6})`;
-            return (
-              <div key={i} className="neuron-bar-col">
-                <div
-                  className="neuron-bar"
-                  style={{ height: `${heightPct}%`, backgroundColor: bgColor }}
-                />
-              </div>
-            );
-          })}
         </div>
       </div>
     </div>

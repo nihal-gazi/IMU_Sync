@@ -641,14 +641,15 @@ html, body, #root {
   position: relative;
 }
 
-.neuron-bar {
-  width: 100%;
-  background: var(--accent-cyan);
-  border-radius: 2px;
-  transition: height 0.05s ease-out;
+.ekf-telemetry-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-bottom: 4px;
 }
 
 .scalers-table-box {
+
   background: rgba(0, 0, 0, 0.4);
   border-radius: 6px;
   border: 1px solid var(--border-color);

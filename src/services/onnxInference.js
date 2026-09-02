@@ -1,23 +1,25 @@
 /**
- * ONNX Runtime Web Inference Service for IMU-Sync
- * Model Target Outputs: [vx, vy] (2 outputs)
- * Direct Velocity Prediction: Predicts 2D velocity vector [vx, vy] directly from 6-axis IMU.
+ * ONNX Runtime Web Inference Service for IMU-Sync & TLIO Transformer
+ * Includes:
+ * 1. IMUTransformerTLIO: 1-Second Sliding Window -> [dx_1s, dy_1s] Displacement Vector
+ * 2. SimpleRNN / SimpleMLP baseline models
  */
 
 import * as ort from 'onnxruntime-web';
 
 class ONNXInferenceService {
   constructor() {
+    this.sessionTransformer = null;
     this.sessionRNN = null;
     this.sessionMLP = null;
     this.isReady = false;
-    this.mode = 'rnn'; // 'rnn' | 'mlp'
+    this.mode = 'tlio'; // 'tlio' | 'rnn' | 'mlp'
 
     // RNN Hidden state tensor (1 x 32)
     this.hiddenDim = 32;
     this.hiddenState = new Float32Array(this.hiddenDim);
 
-    // Normalization Scalers for 6 inputs and 2 targets [vx, vy]
+    // Normalization Scalers
     this.scalers = {
       features: {
         names: ['ax', 'ay', 'az', 'gx', 'gy', 'gz'],
@@ -25,9 +27,9 @@ class ONNXInferenceService {
         std: [0.954, 0.887, 1.214, 0.124, 0.098, 0.089]
       },
       targets: {
-        names: ['vx', 'vy'],
-        mean: [0.12, 1.84],
-        std: [1.25, 2.10]
+        names: ['dx_1s', 'dy_1s'],
+        mean: [0.0002, -0.215],
+        std: [1.483, 1.852]
       }
     };
   }
@@ -44,30 +46,54 @@ class ONNXInferenceService {
           const scalerJson = await scalerRes.json();
           if (scalerJson.features && scalerJson.targets) {
             this.scalers = scalerJson;
-            console.log('[ONNX Service] Scaler parameters loaded for [vx, vy].');
+            console.log('[ONNX Service] TLIO Scaler parameters loaded.');
           }
         }
       } catch (e) {
         console.warn('[ONNX Service] Using fallback scalers:', e);
       }
 
-      // 2. Fetch and Load RNN ONNX Model as Uint8Array Memory Buffer
-      const rnnRes = await fetch(`${modelsBasePath}/rnn_model.onnx`);
-      if (!rnnRes.ok) throw new Error(`HTTP ${rnnRes.status} fetching rnn_model.onnx`);
-      const rnnBuffer = await rnnRes.arrayBuffer();
-      this.sessionRNN = await ort.InferenceSession.create(new Uint8Array(rnnBuffer), {
-        executionProviders: ['wasm']
-      });
-      console.log('[ONNX Service] SimpleRNN ONNX session initialized ([vx, vy]).');
+      // 2. Fetch and Load TLIO IMU-Transformer ONNX Model
+      try {
+        const transformerRes = await fetch(`${modelsBasePath}/tlio_transformer.onnx`);
+        if (transformerRes.ok) {
+          const transBuffer = await transformerRes.arrayBuffer();
+          this.sessionTransformer = await ort.InferenceSession.create(new Uint8Array(transBuffer), {
+            executionProviders: ['wasm']
+          });
+          console.log('[ONNX Service] TLIO IMU-Transformer ONNX session initialized.');
+        }
+      } catch (err) {
+        console.warn('[ONNX Service] TLIO Transformer loading:', err);
+      }
 
-      // 3. Fetch and Load MLP ONNX Model as Uint8Array Memory Buffer
-      const mlpRes = await fetch(`${modelsBasePath}/mlp_model.onnx`);
-      if (!mlpRes.ok) throw new Error(`HTTP ${mlpRes.status} fetching mlp_model.onnx`);
-      const mlpBuffer = await mlpRes.arrayBuffer();
-      this.sessionMLP = await ort.InferenceSession.create(new Uint8Array(mlpBuffer), {
-        executionProviders: ['wasm']
-      });
-      console.log('[ONNX Service] SimpleMLP ONNX session initialized ([vx, vy]).');
+      // 3. Fetch and Load RNN Model
+      try {
+        const rnnRes = await fetch(`${modelsBasePath}/rnn_model.onnx`);
+        if (rnnRes.ok) {
+          const rnnBuffer = await rnnRes.arrayBuffer();
+          this.sessionRNN = await ort.InferenceSession.create(new Uint8Array(rnnBuffer), {
+            executionProviders: ['wasm']
+          });
+          console.log('[ONNX Service] SimpleRNN ONNX session initialized.');
+        }
+      } catch (e) {
+        console.warn('[ONNX Service] RNN model loading:', e);
+      }
+
+      // 4. Fetch and Load MLP Model
+      try {
+        const mlpRes = await fetch(`${modelsBasePath}/mlp_model.onnx`);
+        if (mlpRes.ok) {
+          const mlpBuffer = await mlpRes.arrayBuffer();
+          this.sessionMLP = await ort.InferenceSession.create(new Uint8Array(mlpBuffer), {
+            executionProviders: ['wasm']
+          });
+          console.log('[ONNX Service] SimpleMLP ONNX session initialized.');
+        }
+      } catch (e) {
+        console.warn('[ONNX Service] MLP model loading:', e);
+      }
 
       this.isReady = true;
       return true;
@@ -83,13 +109,13 @@ class ONNXInferenceService {
   }
 
   setMode(mode) {
-    if (mode === 'rnn' || mode === 'mlp') {
+    if (mode === 'tlio' || mode === 'rnn' || mode === 'mlp') {
       this.mode = mode;
       if (mode === 'rnn') this.resetHiddenState();
     }
   }
 
-  normalizeInput(raw) {
+  normalizeSample(raw) {
     const mean = this.scalers.features.mean;
     const std = this.scalers.features.std;
     const norm = new Float32Array(6);
@@ -99,71 +125,58 @@ class ONNXInferenceService {
     return norm;
   }
 
-  denormalizeOutput(rawY) {
+  denormalizeDisplacement(rawDisp) {
     const mean = this.scalers.targets.mean;
     const std = this.scalers.targets.std;
     const out = new Float32Array(2);
     for (let i = 0; i < 2; i++) {
-      out[i] = rawY[i] * (std[i] || 1.0) + mean[i];
+      out[i] = rawDisp[i] * (std[i] || 1.0) + mean[i];
     }
     return out;
   }
 
   /**
-   * Runs single step inference
-   * Predicts [vx, vy] directly from sensor data.
-   * @param {Array<number>} rawImu - [ax, ay, az, gx, gy, gz]
+   * Runs 1-Second Window TLIO Transformer Inference
+   * @param {Array<Array<number>>} rawWindow - 10 consecutive 6-axis IMU samples [10, 6]
+   * @returns {Promise<{dx: number, dy: number, latencyMs: number}>}
    */
-  async predictStep(rawImu) {
+  async predict1sDisplacement(rawWindow) {
     const t0 = performance.now();
-    const xNorm = this.normalizeInput(rawImu);
-    let rawPred = new Float32Array(2);
+    const windowSize = 10;
+    const flatNormWindow = new Float32Array(windowSize * 6);
 
-    try {
-      if (this.isReady && this.mode === 'rnn' && this.sessionRNN) {
-        const tensorX = new ort.Tensor('float32', xNorm, [1, 6]);
-        const tensorH = new ort.Tensor('float32', this.hiddenState, [1, 32]);
-
-        const feeds = { input_imu: tensorX, h_prev: tensorH };
-        const results = await this.sessionRNN.run(feeds);
-
-        const outVector = results.vector_output.data;
-        const outHNext = results.h_next.data;
-
-        this.hiddenState.set(outHNext);
-        rawPred[0] = outVector[0];
-        rawPred[1] = outVector[1];
-      } else if (this.isReady && this.mode === 'mlp' && this.sessionMLP) {
-        const tensorX = new ort.Tensor('float32', xNorm, [1, 6]);
-        const feeds = { input_imu: tensorX };
-        const results = await this.sessionMLP.run(feeds);
-
-        const outVector = results.vector_output.data;
-        rawPred[0] = outVector[0];
-        rawPred[1] = outVector[1];
-      } else {
-        const [ax, ay, az, gx, gy, gz] = rawImu;
-        const spd = Math.max(0, Math.sqrt(ax * ax + ay * ay) * 0.5);
-        rawPred[0] = ax * 0.3;
-        rawPred[1] = ay * 0.3;
+    // Normalize each sample in the 1-second window
+    for (let t = 0; t < windowSize; t++) {
+      const sample = rawWindow[t] || [0, 0, 9.81, 0, 0, 0];
+      const norm = this.normalizeSample(sample);
+      for (let c = 0; c < 6; c++) {
+        flatNormWindow[t * 6 + c] = norm[c];
       }
-    } catch (e) {
-      console.warn('[ONNX Service] Inference step error:', e);
     }
 
-    const denorm = this.denormalizeOutput(rawPred);
-    const vx = denorm[0];
-    const vy = denorm[1];
-    const speed = Math.hypot(vx, vy);
-    const latencyMs = Math.max(0.01, performance.now() - t0);
+    let predDx = 0.0;
+    let predDy = 0.0;
 
+    try {
+      if (this.sessionTransformer) {
+        const inputTensor = new ort.Tensor('float32', flatNormWindow, [1, windowSize, 6]);
+        const feeds = { input_window: inputTensor };
+        const results = await this.sessionTransformer.run(feeds);
+
+        const outData = results.displacement_1s.data;
+        const denorm = this.denormalizeDisplacement([outData[0], outData[1]]);
+        predDx = denorm[0];
+        predDy = denorm[1];
+      }
+    } catch (err) {
+      console.warn('[ONNX Service] Transformer inference error:', err);
+    }
+
+    const latencyMs = Math.max(0.01, performance.now() - t0);
     return {
-      vx,
-      vy,
-      speed,
-      speedKmh: speed * 3.6,
-      hiddenState: this.hiddenState,
-      scalers: this.scalers,
+      dx: predDx,
+      dy: predDy,
+      magnitude: Math.hypot(predDx, predDy),
       latencyMs
     };
   }
