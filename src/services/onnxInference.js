@@ -12,7 +12,7 @@ class ONNXInferenceService {
     this.sessionMLP = null;
     this.isReady = false;
     this.mode = 'rnn'; // 'rnn' | 'mlp'
-    
+
     // RNN Hidden state tensor (1 x 32)
     this.hiddenDim = 32;
     this.hiddenState = new Float32Array(this.hiddenDim);
@@ -50,19 +50,23 @@ class ONNXInferenceService {
         console.warn('[ONNX Service] Using fallback scalers:', e);
       }
 
-      // 2. Load RNN ONNX Model
-      const rnnPath = `${modelsBasePath}/rnn_model.onnx`;
-      this.sessionRNN = await ort.InferenceSession.create(rnnPath, {
+      // 2. Fetch and Load RNN ONNX Model as Uint8Array Buffer (immune to file path issues)
+      const rnnRes = await fetch(`${modelsBasePath}/rnn_model.onnx`);
+      if (!rnnRes.ok) throw new Error(`HTTP ${rnnRes.status} fetching rnn_model.onnx`);
+      const rnnBuffer = await rnnRes.arrayBuffer();
+      this.sessionRNN = await ort.InferenceSession.create(new Uint8Array(rnnBuffer), {
         executionProviders: ['wasm']
       });
-      console.log('[ONNX Service] SimpleRNN ONNX session initialized.');
+      console.log('[ONNX Service] SimpleRNN ONNX session initialized successfully.');
 
-      // 3. Load MLP ONNX Model
-      const mlpPath = `${modelsBasePath}/mlp_model.onnx`;
-      this.sessionMLP = await ort.InferenceSession.create(mlpPath, {
+      // 3. Fetch and Load MLP ONNX Model as Uint8Array Buffer
+      const mlpRes = await fetch(`${modelsBasePath}/mlp_model.onnx`);
+      if (!mlpRes.ok) throw new Error(`HTTP ${mlpRes.status} fetching mlp_model.onnx`);
+      const mlpBuffer = await mlpRes.arrayBuffer();
+      this.sessionMLP = await ort.InferenceSession.create(new Uint8Array(mlpBuffer), {
         executionProviders: ['wasm']
       });
-      console.log('[ONNX Service] SimpleMLP ONNX session initialized.');
+      console.log('[ONNX Service] SimpleMLP ONNX session initialized successfully.');
 
       this.isReady = true;
       return true;
