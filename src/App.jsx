@@ -30,7 +30,8 @@ export default function App() {
     pitchDeg: 0,
     rollDeg: 0,
     headingDeg: 0,
-    isMoving: false
+    isMoving: false,
+    accelerationMps2: 0
   });
 
   // 1-Second Transformer & Alignment Metrics State
@@ -43,7 +44,8 @@ export default function App() {
     rollDeg: 0,
     rawGyr: [0, 0, 0],
     alignedGyr: [0, 0, 0],
-    isMoving: false
+    isMoving: false,
+    dvFwd: 0
   });
 
   // Simulator & Mobile State
@@ -63,7 +65,8 @@ export default function App() {
     speedKmh: 0
   });
 
-  const headingRadRef = useRef(0.0); // 0 = North (+Y)
+  const headingRadRef = useRef(0.0);
+  const curSpeedMpsRef = useRef(0.0);
   const trailRef = useRef([{ x: 0, y: 0, speed: 0 }]);
   const hiddenStateRef = useRef(new Float32Array(32));
   const recenterRef = useRef(null);
@@ -131,7 +134,7 @@ export default function App() {
 
   useEffect(() => {
     async function setup() {
-      console.log('[IMU-Sync] Initializing 2-Stage Motion System v0.1.5...');
+      console.log('[IMU-Sync] Initializing Kinematic Acceleration System v0.1.8...');
       const ready = await onnxInferenceService.init('/models');
       setIsONNXReady(ready);
       setScalers(onnxInferenceService.scalers);
@@ -156,7 +159,7 @@ export default function App() {
     onnxInferenceService.setMode(modelMode);
   }, [modelMode]);
 
-  // Main Telemetry, Gyro Heading Integration & 2-Stage 1-Second AI Loop
+  // Main Telemetry, Gyro Heading Integration & Kinematic Acceleration Loop
   useEffect(() => {
     let animId;
 
@@ -188,7 +191,7 @@ export default function App() {
           demoTimeRef.current += dt;
           rawImu = [
             (Math.random() - 0.5) * 0.15,
-            2.5 + (Math.random() - 0.5) * 0.2,
+            1.8 + (Math.random() - 0.5) * 0.2,
             9.81 + (Math.random() - 0.5) * 0.1,
             (Math.random() - 0.5) * 0.02,
             (Math.random() - 0.5) * 0.02,
@@ -199,7 +202,7 @@ export default function App() {
           const turnRate = Math.sin(demoTimeRef.current * 0.8) * 0.7;
           rawImu = [
             (Math.random() - 0.5) * 0.15,
-            2.2 + (Math.random() - 0.5) * 0.2,
+            1.5 + (Math.random() - 0.5) * 0.2,
             9.81 + (Math.random() - 0.5) * 0.1,
             (Math.random() - 0.5) * 0.02,
             (Math.random() - 0.5) * 0.02,
@@ -224,7 +227,7 @@ export default function App() {
         }
       }
 
-      // 2. 3D Gravity Orientation Alignment
+      // 2. 3D Gravity Orientation Alignment (Canonical Screen-Facing-Up)
       const alignResult = orientationAligner.alignIMU(rawImu, dt);
       const imu = alignResult.alignedImu;
       currentImuRef.current = imu;
@@ -241,7 +244,7 @@ export default function App() {
       gyr[1].push(gy); gyr[1].shift();
       gyr[2].push(gz); gyr[2].shift();
 
-      // 4. Continuous Gyroscope Heading Integration
+      // 4. Continuous Heading Integration from Screen-Up Gz
       headingRadRef.current += gz * dt;
 
       // 5. Accumulate sliding 1-second continuous window
@@ -251,16 +254,28 @@ export default function App() {
 
       timeSinceLast1sUpdateRef.current += dt;
 
-      // 6. Every 1.0 Second: Execute 2-Stage Gated Motion System
+      // 6. Every 1.0 Second: Kinematic Acceleration & Velocity Integration
       if (timeSinceLast1sUpdateRef.current >= 1.0 && win.length >= 10) {
         timeSinceLast1sUpdateRef.current = 0.0;
         stepCountRef.current++;
 
-        // 2-Stage Inference: Classifier -> Rest (0.0) or Moving (Transformer)
-        const pred = await onnxInferenceService.predict1sDisplacement(win);
-        const fwdDisp = pred.dyFwd;
+        // Run 2-Stage Inference: Classifier -> Rest (0.0) or Predict dv
+        const pred = await onnxInferenceService.predict1sAcceleration(win);
+        let fwdDisp = 0.0;
 
-        // Rotate Body Displacement into Global Coordinates using Integrated Heading
+        if (!pred.isMoving) {
+          curSpeedMpsRef.current = 0.0;
+          fwdDisp = 0.0;
+        } else {
+          const prevSpeed = curSpeedMpsRef.current;
+          if (prevSpeed < 0.2) {
+            curSpeedMpsRef.current = Math.max(1.0, prevSpeed + pred.dvFwd + 1.2);
+          } else {
+            curSpeedMpsRef.current = Math.max(0.2, prevSpeed + pred.dvFwd);
+          }
+          fwdDisp = (prevSpeed + curSpeedMpsRef.current) * 0.5;
+        }
+
         const heading = headingRadRef.current;
         const dxWorld = fwdDisp * Math.sin(heading);
         const dyWorld = fwdDisp * Math.cos(heading);
@@ -271,7 +286,7 @@ export default function App() {
         motion.vx = dxWorld;
         motion.vy = dyWorld;
         motion.speed = fwdDisp;
-        motion.speedKmh = pred.speedKmh;
+        motion.speedKmh = curSpeedMpsRef.current * 3.6;
 
         // Append to trail
         const trail = trailRef.current;
@@ -289,7 +304,8 @@ export default function App() {
           pitchDeg: alignResult.pitchDeg,
           rollDeg: alignResult.rollDeg,
           headingDeg: ((heading * 180.0) / Math.PI) % 360,
-          isMoving: pred.isMoving
+          isMoving: pred.isMoving,
+          accelerationMps2: pred.dvFwd
         });
 
         setTransformerMetrics({
@@ -302,7 +318,8 @@ export default function App() {
           rollDeg: alignResult.rollDeg,
           rawGyr: alignResult.rawGyr || [0, 0, 0],
           alignedGyr: [gx, gy, gz],
-          isMoving: pred.isMoving
+          isMoving: pred.isMoving,
+          dvFwd: pred.dvFwd
         });
       }
 
@@ -334,6 +351,7 @@ export default function App() {
     motion.vy = 0;
     motion.speed = 0;
     motion.speedKmh = 0;
+    curSpeedMpsRef.current = 0.0;
     headingRadRef.current = 0.0;
     stepCountRef.current = 0;
     orientationAligner.reset();
@@ -369,7 +387,7 @@ export default function App() {
 
   return (
     <div className="app-container">
-      {/* Top Telemetry Navigation with v0.1.5 */}
+      {/* Top Telemetry Navigation */}
       <TopNav
         modelMode={modelMode}
         posX={telemetry.posX}
@@ -382,6 +400,7 @@ export default function App() {
         rollDeg={telemetry.rollDeg}
         headingDeg={telemetry.headingDeg}
         isMoving={telemetry.isMoving}
+        accelerationMps2={telemetry.accelerationMps2}
         isAlignEnabled={isAlignEnabled}
         onToggleAlign={() => setIsAlignEnabled(!isAlignEnabled)}
         isONNXReady={isONNXReady}

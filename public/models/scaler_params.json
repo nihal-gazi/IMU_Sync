@@ -27,18 +27,19 @@
   },
   "targets": {
     "names": [
-      "dx_lateral",
-      "dy_forward"
+      "dv_lateral",
+      "dv_forward"
     ],
     "mean": [
       0.0,
-      2.181936740875244
+      -4.1208218135579955e-06
     ],
     "std": [
       1.0,
-      1.4774802923202515
+      0.33713310956954956
     ]
   },
   "window_size": 10,
+  "prediction_target": "ACCELERATION_DV_PER_SECOND",
   "canonical_frame": "SCREEN_FACING_UP"
 }

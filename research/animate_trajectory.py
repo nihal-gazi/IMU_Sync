@@ -1,7 +1,7 @@
 """
-2-Stage Interactive & Animated Trajectory Evaluation Script
+2-Stage Kinematic Acceleration Trajectory Evaluation Script
 Stage 1: Rest vs Moving Classifier (Zero-Velocity Detector)
-Stage 2: IMU-Transformer Body-Frame Displacement + 3D Orientation Tracking
+Stage 2: IMU-Transformer Net Acceleration (dv) Estimator + Kinematic Velocity Integration
 """
 
 import os
@@ -42,7 +42,7 @@ def load_models_and_scalers():
     cls_model.load_state_dict(torch.load(cls_pt, map_location="cpu"))
     cls_model.eval()
 
-    # 2. Load IMU-Transformer (Stage 2)
+    # 2. Load Acceleration Transformer (Stage 2)
     transformer_model = IMUTransformerTLIO(
         input_dim=6,
         window_size=10,
@@ -57,7 +57,7 @@ def load_models_and_scalers():
     transformer_model.load_state_dict(torch.load(trans_pt, map_location="cpu"))
     transformer_model.eval()
 
-    print(f"[Animate] Loaded 2-Stage Models: Motion Classifier ({cls_pt}) & Transformer ({trans_pt})")
+    print(f"[Animate] Loaded Kinematic Models: Motion Classifier ({cls_pt}) & Acceleration Transformer ({trans_pt})")
     return cls_model, transformer_model, feat_norm, target_norm
 
 
@@ -67,7 +67,6 @@ def run_evaluation_trajectory(dataset_key: str = "S-S1", max_seconds: int = 120)
     raw_df = pd.read_csv(csv_path, encoding='latin1')
     raw_df.columns = [c.strip() for c in raw_df.columns]
     
-    # Locate Orientation & IMU columns
     for c in raw_df.columns:
         if 'gps orientation' in c.lower() or ('orientation' in c.lower() and 'gps' in c.lower()): gps_h_col = c
         if 'orientation (yaw)' in c.lower(): phone_yaw_col = c
@@ -110,6 +109,7 @@ def run_evaluation_trajectory(dataset_key: str = "S-S1", max_seconds: int = 120)
 
     cur_px = 0.0
     cur_py = 0.0
+    cur_speed_mps = 0.0
 
     gt_x_1s = [0.0]
     gt_y_1s = [0.0]
@@ -125,25 +125,36 @@ def run_evaluation_trajectory(dataset_key: str = "S-S1", max_seconds: int = 120)
             logits = cls_model(tensor_x)
             is_moving = int(torch.argmax(logits, dim=1).item())
 
-            # STAGE 2: Transformer Regressor
+            # STAGE 2: Acceleration Estimator + Kinematic Velocity Integration
             if is_moving == 1:
                 pred_norm = trans_model(tensor_x).numpy()[0]
-                pred_disp = target_norm.inverse_transform(pred_norm)
-                fwd_disp = max(0.0, float(pred_disp[1]))
+                pred_acc = target_norm.inverse_transform(pred_norm)
+                dv_fwd = float(pred_acc[1]) # Net 1-second change in speed
+                
+                prev_speed = cur_speed_mps
+                # Velocity update: v_t = max(0, v_{t-1} + dv)
+                # If starting from rest, kickstart with initial motion velocity
+                if prev_speed < 0.2:
+                    cur_speed_mps = max(1.0, prev_speed + dv_fwd + 1.2)
+                else:
+                    cur_speed_mps = max(0.2, prev_speed + dv_fwd)
+                    
+                fwd_disp = (prev_speed + cur_speed_mps) * 0.5 # Distance in 1s
                 m_state = "MOVING"
             else:
+                cur_speed_mps = 0.0
                 fwd_disp = 0.0
                 m_state = "REST"
 
             motion_states.append(m_state)
 
-            # 3D Vehicle Heading Tracking from Phone Orientation
+            # 3D Vehicle Heading Tracking
             cur_phone_yaw = float(phone_yaws[end - 1])
             delta_yaw = (cur_phone_yaw - initial_phone_yaw + 180) % 360 - 180
             cur_heading_deg = (start_bearing_deg - delta_yaw) % 360
             cur_heading_rad = np.radians(cur_heading_deg)
 
-            # Rotate Body-Frame Displacement into Global World Coordinates
+            # Rotate into Global Coordinates
             dx_world = fwd_disp * np.sin(cur_heading_rad)
             dy_world = fwd_disp * np.cos(cur_heading_rad)
 
@@ -152,7 +163,7 @@ def run_evaluation_trajectory(dataset_key: str = "S-S1", max_seconds: int = 120)
 
             pred_x.append(cur_px)
             pred_y.append(cur_py)
-            pred_speeds.append(fwd_disp * 3.6)
+            pred_speeds.append(cur_speed_mps * 3.6)
 
             # Ground truth 1-second step
             gt_x_1s.append(gt_x_all[end - 1])
@@ -171,7 +182,7 @@ def run_evaluation_trajectory(dataset_key: str = "S-S1", max_seconds: int = 120)
     mean_ate = np.mean(ate_errors)
     final_ate = ate_errors[-1]
 
-    print(f"\n--- 2-Stage Trajectory Evaluation Summary ({len(pred_x)} seconds) ---")
+    print(f"\n--- Kinematic Acceleration Trajectory Summary ({len(pred_x)} seconds) ---")
     print(f"Total Distance Traveled (Ground Truth): {np.hypot(gt_x_1s[-1], gt_y_1s[-1]):.2f} meters")
     print(f"Total Distance Traveled (Predicted):    {np.hypot(pred_x[-1], pred_y[-1]):.2f} meters")
     print(f"Mean Absolute Trajectory Error (ATE):   {mean_ate:.2f} meters")
@@ -200,7 +211,7 @@ def create_animated_plot(data: dict, save_gif: bool = True, gif_path: str = "tra
     ax_map = fig.add_subplot(gs[:, 0])
     ax_map.set_facecolor('#161b22')
     ax_map.grid(True, linestyle='--', color='#ffffff', alpha=0.15)
-    ax_map.set_title("2D Ground Truth Path vs 2-Stage IMU AI Prediction", color='#00f0ff', fontsize=12, fontweight='bold', pad=10)
+    ax_map.set_title("2D Ground Truth Path vs Kinematic Acceleration AI Prediction", color='#00f0ff', fontsize=12, fontweight='bold', pad=10)
     ax_map.set_xlabel("X Position (East / m)", color='#8b949e', fontsize=10)
     ax_map.set_ylabel("Y Position (North / m)", color='#8b949e', fontsize=10)
 
@@ -221,7 +232,7 @@ def create_animated_plot(data: dict, save_gif: bool = True, gif_path: str = "tra
     ax_map.plot(pred_x, pred_y, color='#00f0ff', linestyle=':', alpha=0.35, label='Predicted (Complete)')
 
     line_gt, = ax_map.plot([], [], color='#3fb950', linewidth=2.8, label='Ground Truth Path')
-    line_pred, = ax_map.plot([], [], color='#00f0ff', linewidth=2.8, label='2-Stage AI Path')
+    line_pred, = ax_map.plot([], [], color='#00f0ff', linewidth=2.8, label='Kinematic AI Path')
     head_gt, = ax_map.plot([], [], marker='o', markersize=7, color='#2ea043', markeredgecolor='white')
     head_pred, = ax_map.plot([], [], marker='^', markersize=8, color='#ffb800', markeredgecolor='white')
     ax_map.plot(0, 0, marker='s', markersize=7, color='#ffffff', label='Start (0,0)')
@@ -231,14 +242,14 @@ def create_animated_plot(data: dict, save_gif: bool = True, gif_path: str = "tra
     ax_speed = fig.add_subplot(gs[0, 1])
     ax_speed.set_facecolor('#161b22')
     ax_speed.grid(True, linestyle='--', color='#ffffff', alpha=0.15)
-    ax_speed.set_title("Speed Tracking & Rest Detection (km/h)", color='#f0883e', fontsize=11, fontweight='bold')
+    ax_speed.set_title("Kinematic Speed Tracking & Rest Gating (km/h)", color='#f0883e', fontsize=11, fontweight='bold')
     ax_speed.set_xlabel("Time (s)", color='#8b949e', fontsize=9)
     ax_speed.set_ylabel("Speed (km/h)", color='#8b949e', fontsize=9)
     ax_speed.set_xlim(0, len(pred_x))
     ax_speed.set_ylim(0, max(np.max(data['gt_speeds']), np.max(data['pred_speeds'])) + 10)
 
     line_speed_gt, = ax_speed.plot([], [], color='#3fb950', linewidth=1.8, label='GT Speed')
-    line_speed_pred, = ax_speed.plot([], [], color='#00f0ff', linewidth=1.8, linestyle='--', label='AI Speed')
+    line_speed_pred, = ax_speed.plot([], [], color='#00f0ff', linewidth=1.8, linestyle='--', label='AI Kinematic Speed')
     ax_speed.legend(loc='upper right', framealpha=0.6, facecolor='#0d1117', edgecolor='#30363d', fontsize=8)
 
     # Subplot 3: Absolute Trajectory Error (ATE) Tracking
@@ -296,7 +307,7 @@ def create_animated_plot(data: dict, save_gif: bool = True, gif_path: str = "tra
         state = data['motion_states'][i - 1]
         hud_text.set_text(
             f"TIME: {i:03d}s / {n_frames}s\n"
-            f"MOTION STATE: [{state}]\n"
+            f"MOTION: [{state}] (Kinematic dv)\n"
             f"GT POS:   ({gt_x[i-1]:.1f}, {gt_y[i-1]:.1f}) m\n"
             f"PRED POS: ({pred_x[i-1]:.1f}, {pred_y[i-1]:.1f}) m\n"
             f"GT SPEED:   {cur_spd_gt:.1f} km/h\n"
@@ -324,7 +335,7 @@ def create_animated_plot(data: dict, save_gif: bool = True, gif_path: str = "tra
 
 if __name__ == "__main__":
     import argparse
-    parser = argparse.ArgumentParser(description="2-Stage IMU AI Trajectory Evaluation")
+    parser = argparse.ArgumentParser(description="2-Stage Kinematic Acceleration Trajectory Evaluation")
     parser.add_argument("--dataset", type=str, default="S-S1", help="Dataset key (S-S1, S-S2, S-M)")
     parser.add_argument("--seconds", type=int, default=60, help="Number of seconds to evaluate")
     parser.add_argument("--no-save", action="store_true", help="Skip saving GIF")

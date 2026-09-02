@@ -1,5 +1,5 @@
 import React from 'react';
-import { Compass, Trash2, Rotate3D, Activity } from 'lucide-react';
+import { Compass, Trash2, Rotate3D, Gauge } from 'lucide-react';
 
 export default function TopNav({
   modelMode,
@@ -13,6 +13,7 @@ export default function TopNav({
   rollDeg,
   headingDeg,
   isMoving,
+  accelerationMps2,
   isAlignEnabled,
   onToggleAlign,
   isONNXReady,
@@ -23,7 +24,7 @@ export default function TopNav({
 }) {
   const getEngineName = () => {
     if (!isONNXReady) return 'Loading WASM...';
-    if (modelMode === 'tlio') return '2-Stage Gated Transformer';
+    if (modelMode === 'tlio') return 'Kinematic dv Transformer';
     if (modelMode === 'rnn') return 'ONNX SimpleRNN';
     return 'ONNX SimpleMLP';
   };
@@ -34,7 +35,7 @@ export default function TopNav({
         <div className="logo-dot"></div>
         <div className="brand-text">
           <span className="brand-title">IMU-SYNC</span>
-          <span className="brand-sub">v0.1.5 // 2-STAGE REST-GATED TRANSFORMER</span>
+          <span className="brand-sub">v0.1.8 // KINEMATIC ACCELERATION TRANSFORMER</span>
         </div>
       </div>
 
@@ -56,6 +57,12 @@ export default function TopNav({
             }}
           >
             {isMoving ? 'MOVING' : 'REST'}
+          </span>
+        </div>
+        <div className="hud-item">
+          <span className="hud-label">ACCEL (dv/dt)</span>
+          <span className="hud-val highlight-amber">
+            {(accelerationMps2 || 0) >= 0 ? '+' : ''}{(accelerationMps2 || 0).toFixed(2)} m/s²
           </span>
         </div>
         <div className="hud-item">

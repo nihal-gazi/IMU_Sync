@@ -1,7 +1,7 @@
 """
-Interactive Pygame Trajectory Visualizer for 2-Stage Motion System
+Interactive Pygame Trajectory Visualizer for Kinematic Acceleration System
 Stage 1: Rest vs Moving Classifier (MLP)
-Stage 2: Local Body-Frame Displacement Transformer + 3D Vehicle Heading Tracking
+Stage 2: 1-Second Net Acceleration (dv) Transformer + Kinematic Velocity Integration
 """
 
 import os
@@ -105,8 +105,9 @@ def precompute_trajectory(dataset_key="S-S1", max_seconds=180):
 
     cur_pred_x = 0.0
     cur_pred_y = 0.0
+    cur_speed_mps = 0.0
 
-    print(f"[Pygame] Precomputing {n_seconds} seconds using 2-Stage Motion System + 3D Orientation...")
+    print(f"[Pygame] Precomputing {n_seconds} seconds using Kinematic Acceleration System...")
     with torch.no_grad():
         for s in range(n_seconds):
             start = s * window_size
@@ -118,13 +119,22 @@ def precompute_trajectory(dataset_key="S-S1", max_seconds=180):
             logits = cls_model(tensor_x)
             is_moving = int(torch.argmax(logits, dim=1).item())
 
-            # STAGE 2: Transformer Regressor
+            # STAGE 2: Acceleration Estimator + Kinematic Integration
             if is_moving == 1:
                 pred_norm = trans_model(tensor_x).numpy()[0]
                 disp = target_norm.inverse_transform(pred_norm)
-                fwd_disp = max(0.0, float(disp[1]))
+                dv_fwd = float(disp[1])
+                
+                prev_speed = cur_speed_mps
+                if prev_speed < 0.2:
+                    cur_speed_mps = max(1.0, prev_speed + dv_fwd + 1.2)
+                else:
+                    cur_speed_mps = max(0.2, prev_speed + dv_fwd)
+                    
+                fwd_disp = (prev_speed + cur_speed_mps) * 0.5
                 m_state = "MOVING"
             else:
+                cur_speed_mps = 0.0
                 fwd_disp = 0.0
                 m_state = "REST"
 
@@ -145,11 +155,8 @@ def precompute_trajectory(dataset_key="S-S1", max_seconds=180):
             pred_steps.append([cur_pred_x, cur_pred_y])
             gt_steps.append([gt_x_all[end - 1], gt_y_all[end - 1]])
 
-            speed_pred = fwd_disp * 3.6
-            speed_gt = float(np.mean(speeds_mps[start:end])) * 3.6
-
-            speeds_pred.append(speed_pred)
-            speeds_gt.append(speed_gt)
+            speeds_pred.append(cur_speed_mps * 3.6)
+            speeds_gt.append(float(np.mean(speeds_mps[start:end])) * 3.6)
 
     return {
         'n_seconds': n_seconds,
@@ -163,7 +170,7 @@ def precompute_trajectory(dataset_key="S-S1", max_seconds=180):
 
 def run_pygame_visualizer(dataset_key="S-S1", max_seconds=180):
     pygame.init()
-    pygame.display.set_caption("IMU-Sync // 2-Stage Pygame Visualizer (Rest-Gated + 3D Orientation)")
+    pygame.display.set_caption("IMU-Sync // Kinematic Acceleration Pygame Visualizer")
 
     WIDTH, HEIGHT = 1280, 720
     screen = pygame.display.set_mode((WIDTH, HEIGHT), pygame.RESIZABLE)
@@ -349,12 +356,12 @@ def run_pygame_visualizer(dataset_key="S-S1", max_seconds=180):
 
         ate = math.hypot(cur_pred[0] - cur_gt[0], cur_pred[1] - cur_gt[1])
 
-        t_title = font_title.render("IMU-SYNC // 2-STAGE TRAJECTORY EVAL", True, CYAN)
+        t_title = font_title.render("IMU-SYNC // KINEMATIC TRAJECTORY EVAL", True, CYAN)
         hud_surface.blit(t_title, (12, 10))
 
         lines = [
             (f"TIME: {int(current_time_sec):03d}s / {n_seconds:03d}s  |  SPEED: {playback_speed:.0f}x", WHITE),
-            (f"STAGE 1 MOTION: [{cur_state}] (Rest-Gated)", GREEN if cur_state == 'MOVING' else AMBER),
+            (f"STAGE 1 MOTION: [{cur_state}] (Kinematic dv)", GREEN if cur_state == 'MOVING' else AMBER),
             (f"GROUND TRUTH:   ({cur_gt[0]:.2f}m, {cur_gt[1]:.2f}m) @ {cur_spd_gt:.1f} km/h", GREEN),
             (f"TRANSFORMER:    ({cur_pred[0]:.2f}m, {cur_pred[1]:.2f}m) @ {cur_spd_pred:.1f} km/h", CYAN),
             (f"DRIFT ATE:      {ate:.2f} meters", RED if ate > 10 else AMBER),
@@ -382,7 +389,7 @@ def run_pygame_visualizer(dataset_key="S-S1", max_seconds=180):
 
         pygame.draw.line(leg_surface, CYAN, (15, 48), (45, 48), 3)
         pygame.draw.circle(leg_surface, CYAN, (52, 48), 4)
-        t_pred = font_main.render("2-Stage AI Path", True, WHITE)
+        t_pred = font_main.render("Kinematic AI Path", True, WHITE)
         leg_surface.blit(t_pred, (65, 40))
 
         screen.blit(leg_surface, (15, cur_h - 85))
@@ -394,7 +401,7 @@ def run_pygame_visualizer(dataset_key="S-S1", max_seconds=180):
 
 if __name__ == "__main__":
     import argparse
-    parser = argparse.ArgumentParser(description="2-Stage Pygame IMU Trajectory Visualizer")
+    parser = argparse.ArgumentParser(description="Kinematic Acceleration Pygame Visualizer")
     parser.add_argument("--dataset", type=str, default="S-S1", help="Dataset key (S-S1, S-S2, S-M)")
     parser.add_argument("--seconds", type=int, default=180, help="Number of seconds of driving to evaluate")
     args = parser.parse_args()
