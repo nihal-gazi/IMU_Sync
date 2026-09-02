@@ -39,5 +39,6 @@
       1.4774802923202515
     ]
   },
-  "window_size": 10
+  "window_size": 10,
+  "rest_speed_threshold_kmh": 1.0080000000000002
 }

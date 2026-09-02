@@ -1,5 +1,5 @@
 import React from 'react';
-import { Compass, Trash2, Rotate3D } from 'lucide-react';
+import { Compass, Trash2, Rotate3D, Activity } from 'lucide-react';
 
 export default function TopNav({
   modelMode,
@@ -12,6 +12,7 @@ export default function TopNav({
   pitchDeg,
   rollDeg,
   headingDeg,
+  isMoving,
   isAlignEnabled,
   onToggleAlign,
   isONNXReady,
@@ -22,7 +23,7 @@ export default function TopNav({
 }) {
   const getEngineName = () => {
     if (!isONNXReady) return 'Loading WASM...';
-    if (modelMode === 'tlio') return 'Body-Frame Transformer (1s)';
+    if (modelMode === 'tlio') return '2-Stage Gated Transformer';
     if (modelMode === 'rnn') return 'ONNX SimpleRNN';
     return 'ONNX SimpleMLP';
   };
@@ -33,7 +34,7 @@ export default function TopNav({
         <div className="logo-dot"></div>
         <div className="brand-text">
           <span className="brand-title">IMU-SYNC</span>
-          <span className="brand-sub">v0.1.4 // BODY-FRAME TRANSFORMER + GYRO</span>
+          <span className="brand-sub">v0.1.5 // 2-STAGE REST-GATED TRANSFORMER</span>
         </div>
       </div>
 
@@ -46,12 +47,20 @@ export default function TopNav({
           </span>
         </div>
         <div className="hud-item">
-          <span className="hud-label">POS (Px, Py)</span>
-          <span className="hud-val highlight-cyan">{(posX || 0).toFixed(2)}m, {(posY || 0).toFixed(2)}m</span>
+          <span className="hud-label">MOTION STATE</span>
+          <span
+            className="hud-val"
+            style={{
+              color: isMoving ? 'var(--accent-green)' : 'var(--accent-amber)',
+              fontWeight: 'bold'
+            }}
+          >
+            {isMoving ? 'MOVING' : 'REST'}
+          </span>
         </div>
         <div className="hud-item">
-          <span className="hud-label">1s STEP (Δx, Δy)</span>
-          <span className="hud-val">{(vx || 0).toFixed(2)}, {(vy || 0).toFixed(2)} m</span>
+          <span className="hud-label">POS (Px, Py)</span>
+          <span className="hud-val highlight-cyan">{(posX || 0).toFixed(2)}m, {(posY || 0).toFixed(2)}m</span>
         </div>
         <div className="hud-item">
           <span className="hud-label">HEADING (Yaw)</span>

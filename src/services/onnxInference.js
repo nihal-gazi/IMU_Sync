@@ -1,22 +1,23 @@
 /**
- * ONNX Runtime Web Inference Service for Local Body-Frame IMU-Transformer
- * Predicts local body-frame displacement [dx_lateral, dy_forward] from 1-second continuous IMU windows.
+ * ONNX Runtime Web Inference Service for 2-Stage Motion System
+ * Stage 1: RestMovingClassifierMLP (Zero-Velocity Stationary Detector)
+ * Stage 2: IMUTransformerTLIO (Body-Frame Displacement Regressor)
  */
 
 import * as ort from 'onnxruntime-web';
 
 class ONNXInferenceService {
   constructor() {
+    this.sessionClassifier = null;
     this.sessionTransformer = null;
     this.sessionRNN = null;
     this.sessionMLP = null;
     this.isReady = false;
-    this.mode = 'tlio'; // 'tlio' | 'rnn' | 'mlp'
+    this.mode = 'tlio';
 
     this.hiddenDim = 32;
     this.hiddenState = new Float32Array(this.hiddenDim);
 
-    // Normalization Scalers
     this.scalers = {
       features: {
         names: ['ax', 'ay', 'az', 'gx', 'gy', 'gz'],
@@ -43,14 +44,28 @@ class ONNXInferenceService {
           const scalerJson = await scalerRes.json();
           if (scalerJson.features && scalerJson.targets) {
             this.scalers = scalerJson;
-            console.log('[ONNX Service] Local Body-Frame Scaler parameters loaded.');
+            console.log('[ONNX Service] Scaler parameters loaded.');
           }
         }
       } catch (e) {
         console.warn('[ONNX Service] Using fallback scalers:', e);
       }
 
-      // 2. Fetch and Load TLIO IMU-Transformer ONNX Model
+      // 2. Load Stage 1 Motion Classifier (MLP)
+      try {
+        const clsRes = await fetch(`${modelsBasePath}/motion_classifier.onnx`);
+        if (clsRes.ok) {
+          const clsBuffer = await clsRes.arrayBuffer();
+          this.sessionClassifier = await ort.InferenceSession.create(new Uint8Array(clsBuffer), {
+            executionProviders: ['wasm']
+          });
+          console.log('[ONNX Service] Stage 1 Motion Classifier ONNX loaded.');
+        }
+      } catch (err) {
+        console.warn('[ONNX Service] Classifier loading error:', err);
+      }
+
+      // 3. Load Stage 2 IMU-Transformer
       try {
         const transformerRes = await fetch(`${modelsBasePath}/tlio_transformer.onnx`);
         if (transformerRes.ok) {
@@ -58,13 +73,13 @@ class ONNXInferenceService {
           this.sessionTransformer = await ort.InferenceSession.create(new Uint8Array(transBuffer), {
             executionProviders: ['wasm']
           });
-          console.log('[ONNX Service] Body-Frame IMU-Transformer ONNX session initialized.');
+          console.log('[ONNX Service] Stage 2 IMU-Transformer ONNX loaded.');
         }
       } catch (err) {
-        console.warn('[ONNX Service] Transformer model loading:', err);
+        console.warn('[ONNX Service] Transformer loading error:', err);
       }
 
-      // 3. Load baseline models if available
+      // 4. Load baseline models
       try {
         const rnnRes = await fetch(`${modelsBasePath}/rnn_model.onnx`);
         if (rnnRes.ok) {
@@ -111,9 +126,9 @@ class ONNXInferenceService {
   }
 
   /**
-   * Runs 1-Second Window Transformer Inference for Body-Frame Displacement
+   * Runs 2-Stage Gated Motion Inference
    * @param {Array<Array<number>>} rawWindow - 10 consecutive 6-axis IMU samples [10, 6]
-   * @returns {Promise<{dxLat: number, dyFwd: number, speedKmh: number, latencyMs: number}>}
+   * @returns {Promise<{isMoving: boolean, dxLat: number, dyFwd: number, speedKmh: number, latencyMs: number}>}
    */
   async predict1sDisplacement(rawWindow) {
     const t0 = performance.now();
@@ -128,26 +143,40 @@ class ONNXInferenceService {
       }
     }
 
+    let isMoving = true;
     let dxLat = 0.0;
     let dyFwd = 0.0;
 
     try {
-      if (this.sessionTransformer) {
-        const inputTensor = new ort.Tensor('float32', flatNormWindow, [1, windowSize, 6]);
+      const inputTensor = new ort.Tensor('float32', flatNormWindow, [1, windowSize, 6]);
+
+      // STAGE 1: Classify REST vs MOVING
+      if (this.sessionClassifier) {
+        const clsFeeds = { input_window: inputTensor };
+        const clsResults = await this.sessionClassifier.run(clsFeeds);
+        const logits = clsResults.motion_logits.data; // [logit_rest, logit_moving]
+        isMoving = logits[1] > logits[0];
+      }
+
+      // STAGE 2: If MOVING -> Run Transformer Regression; If REST -> Return 0.0
+      if (isMoving && this.sessionTransformer) {
         const feeds = { input_window: inputTensor };
         const results = await this.sessionTransformer.run(feeds);
-
         const outData = results.displacement_1s.data;
         const denorm = this.denormalizeDisplacement([outData[0], outData[1]]);
         dxLat = denorm[0];
-        dyFwd = Math.max(0.0, denorm[1]); // Forward distance traveled in 1 second
+        dyFwd = Math.max(0.0, denorm[1]);
+      } else {
+        dxLat = 0.0;
+        dyFwd = 0.0;
       }
     } catch (err) {
-      console.warn('[ONNX Service] Transformer inference error:', err);
+      console.warn('[ONNX Service] Inference error:', err);
     }
 
     const latencyMs = Math.max(0.01, performance.now() - t0);
     return {
+      isMoving,
       dxLat,
       dyFwd,
       speedKmh: dyFwd * 3.6,

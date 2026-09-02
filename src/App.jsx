@@ -29,7 +29,8 @@ export default function App() {
     latencyMs: 0.35,
     pitchDeg: 0,
     rollDeg: 0,
-    headingDeg: 0
+    headingDeg: 0,
+    isMoving: false
   });
 
   // 1-Second Transformer & Alignment Metrics State
@@ -41,7 +42,8 @@ export default function App() {
     pitchDeg: 0,
     rollDeg: 0,
     rawGyr: [0, 0, 0],
-    alignedGyr: [0, 0, 0]
+    alignedGyr: [0, 0, 0],
+    isMoving: false
   });
 
   // Simulator & Mobile State
@@ -127,10 +129,9 @@ export default function App() {
     return () => window.removeEventListener('devicemotion', handleMotion);
   }, []);
 
-  // Initialize ONNX Runtime Web, Datasets & Phone Sensors
   useEffect(() => {
     async function setup() {
-      console.log('[IMU-Sync] Initializing Body-Frame IMU-Transformer v0.1.4...');
+      console.log('[IMU-Sync] Initializing 2-Stage Motion System v0.1.5...');
       const ready = await onnxInferenceService.init('/models');
       setIsONNXReady(ready);
       setScalers(onnxInferenceService.scalers);
@@ -151,12 +152,11 @@ export default function App() {
     return () => unbind();
   }, [bindDeviceMotion]);
 
-  // Sync Architecture Mode with ONNX Service
   useEffect(() => {
     onnxInferenceService.setMode(modelMode);
   }, [modelMode]);
 
-  // Main Telemetry, Gyro Heading Integration & 1-Second Transformer Loop
+  // Main Telemetry, Gyro Heading Integration & 2-Stage 1-Second AI Loop
   useEffect(() => {
     let animId;
 
@@ -224,12 +224,12 @@ export default function App() {
         }
       }
 
-      // 2. 3D Gravity Orientation Estimation & Sensor Alignment Preprocessing
+      // 2. 3D Gravity Orientation Alignment
       const alignResult = orientationAligner.alignIMU(rawImu, dt);
       const imu = alignResult.alignedImu;
       currentImuRef.current = imu;
 
-      // 3. Stream Aligned Oscilloscope buffers (at 60 FPS)
+      // 3. Stream Oscilloscopes
       const [ax, ay, az, gx, gy, gz] = imu;
       const acc = accelDataRef.current;
       acc[0].push(ax); acc[0].shift();
@@ -241,22 +241,22 @@ export default function App() {
       gyr[1].push(gy); gyr[1].shift();
       gyr[2].push(gz); gyr[2].shift();
 
-      // 4. Integrate Continuous Yaw Heading from Gyroscope (Gz)
+      // 4. Continuous Gyroscope Heading Integration
       headingRadRef.current += gz * dt;
 
-      // 5. Accumulate sliding 1-second continuous window (10 samples @ 10Hz)
+      // 5. Accumulate sliding 1-second continuous window
       const win = windowBufferRef.current;
       win.push(imu);
       if (win.length > 10) win.shift();
 
       timeSinceLast1sUpdateRef.current += dt;
 
-      // 6. Every 1.0 Second: Run Transformer & Rotate Body-Frame Displacement into World Coordinates
+      // 6. Every 1.0 Second: Execute 2-Stage Gated Motion System
       if (timeSinceLast1sUpdateRef.current >= 1.0 && win.length >= 10) {
         timeSinceLast1sUpdateRef.current = 0.0;
         stepCountRef.current++;
 
-        // Execute Transformer to predict forward body displacement (meters)
+        // 2-Stage Inference: Classifier -> Rest (0.0) or Moving (Transformer)
         const pred = await onnxInferenceService.predict1sDisplacement(win);
         const fwdDisp = pred.dyFwd;
 
@@ -273,12 +273,12 @@ export default function App() {
         motion.speed = fwdDisp;
         motion.speedKmh = pred.speedKmh;
 
-        // Append 1-second step to trajectory trail
+        // Append to trail
         const trail = trailRef.current;
         trail.push({ x: motion.posX, y: motion.posY, speed: motion.speedKmh });
         if (trail.length > 3000) trail.shift();
 
-        // Update HUD Telemetry
+        // Update Telemetry HUD
         setTelemetry({
           posX: motion.posX,
           posY: motion.posY,
@@ -288,7 +288,8 @@ export default function App() {
           latencyMs: pred.latencyMs,
           pitchDeg: alignResult.pitchDeg,
           rollDeg: alignResult.rollDeg,
-          headingDeg: ((heading * 180.0) / Math.PI) % 360
+          headingDeg: ((heading * 180.0) / Math.PI) % 360,
+          isMoving: pred.isMoving
         });
 
         setTransformerMetrics({
@@ -300,7 +301,8 @@ export default function App() {
           pitchDeg: alignResult.pitchDeg,
           rollDeg: alignResult.rollDeg,
           rawGyr: alignResult.rawGyr || [0, 0, 0],
-          alignedGyr: [gx, gy, gz]
+          alignedGyr: [gx, gy, gz],
+          isMoving: pred.isMoving
         });
       }
 
@@ -311,7 +313,6 @@ export default function App() {
     return () => cancelAnimationFrame(animId);
   }, []);
 
-  // Actions
   const handleToggleSource = () => {
     if (source === 'phone') setSource('replay');
     else if (source === 'replay') {
@@ -368,7 +369,7 @@ export default function App() {
 
   return (
     <div className="app-container">
-      {/* Top Telemetry Navigation with v0.1.4 */}
+      {/* Top Telemetry Navigation with v0.1.5 */}
       <TopNav
         modelMode={modelMode}
         posX={telemetry.posX}
@@ -380,6 +381,7 @@ export default function App() {
         pitchDeg={telemetry.pitchDeg}
         rollDeg={telemetry.rollDeg}
         headingDeg={telemetry.headingDeg}
+        isMoving={telemetry.isMoving}
         isAlignEnabled={isAlignEnabled}
         onToggleAlign={() => setIsAlignEnabled(!isAlignEnabled)}
         isONNXReady={isONNXReady}
@@ -389,14 +391,14 @@ export default function App() {
         onClearTrail={handleClearTrail}
       />
 
-      {/* Infinite Draggable Black Canvas Grid */}
+      {/* Infinite Canvas */}
       <InfiniteCanvas
         motionState={motionState}
         trailRef={trailRef}
         onRecenterRef={recenterRef}
       />
 
-      {/* Bottom Panel with Tabs */}
+      {/* Bottom Panel */}
       <BottomPanel
         activeTab={activeTab}
         setActiveTab={setActiveTab}
