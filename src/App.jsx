@@ -5,6 +5,7 @@ import BottomPanel from './components/BottomPanel';
 import { onnxInferenceService } from './services/onnxInference';
 import { orientationAligner } from './services/orientationAligner';
 import { ekfFilterService, classicalMathService } from './services/kalmanFilterService';
+import { computeRobustCompassHeading, normalizeDegrees, fuseGyroCompass } from './utils/orientation';
 
 export default function App() {
   const [isONNXReady, setIsONNXReady] = useState(false);
@@ -67,6 +68,7 @@ export default function App() {
   });
 
   const headingRadRef = useRef(0.0); // 0 = North (+Y)
+  const compassHeadingDegRef = useRef(null);
   const curSpeedMpsRef = useRef(0.0); // Kinematic integrated speed in m/s
   const trailRef = useRef([{ x: 0, y: 0, speed: 0 }]);
   const hiddenStateRef = useRef(new Float32Array(32));
@@ -135,9 +137,31 @@ export default function App() {
     return () => window.removeEventListener('devicemotion', handleMotion);
   }, []);
 
+  // Bind phone orientation & compass sensors (SIH 3D Tilt-Compensated Heading)
+  const bindOrientation = useCallback(() => {
+    const handleOrientation = (event) => {
+      const webkitHeading = event.webkitCompassHeading;
+      if (webkitHeading !== undefined && !isNaN(webkitHeading)) {
+        compassHeadingDegRef.current = normalizeDegrees(webkitHeading);
+        return;
+      }
+      if (event.alpha !== null && event.beta !== null && event.gamma !== null) {
+        const robustHeading = computeRobustCompassHeading(event.alpha, event.beta, event.gamma);
+        compassHeadingDegRef.current = robustHeading;
+      }
+    };
+
+    window.addEventListener('deviceorientation', handleOrientation);
+    window.addEventListener('deviceorientationabsolute', handleOrientation);
+    return () => {
+      window.removeEventListener('deviceorientation', handleOrientation);
+      window.removeEventListener('deviceorientationabsolute', handleOrientation);
+    };
+  }, []);
+
   useEffect(() => {
     async function setup() {
-      console.log('[IMU-Sync] Initializing 100Hz 2-Stage TLIO Transformer v0.1.10 (Exp 1)...');
+      console.log('[IMU-Sync] Initializing Neural Inertial Odometry v0.1.15...');
       const ready = await onnxInferenceService.init('/models');
       setIsONNXReady(ready);
       setScalers(onnxInferenceService.scalers);
@@ -154,9 +178,13 @@ export default function App() {
       }
     }
     setup();
-    const unbind = bindDeviceMotion();
-    return () => unbind();
-  }, [bindDeviceMotion]);
+    const unbindMotion = bindDeviceMotion();
+    const unbindOrientation = bindOrientation();
+    return () => {
+      unbindMotion();
+      unbindOrientation();
+    };
+  }, [bindDeviceMotion, bindOrientation]);
 
   useEffect(() => {
     onnxInferenceService.setMode(modelMode);
@@ -353,8 +381,13 @@ export default function App() {
       // MODE C: SIH Multi-Head Inertial MLP (Dense 120 -> [dx, dy, v, delta_theta])
       // =======================================================================
       else if (curMode === 'sih_mlp') {
-        // Continuous Gyroscope Heading Integration
-        headingRadRef.current += gz * dt;
+        // Gyro + Compass Complementary Filter (from SIH)
+        const gzDegPerSec = (gz * 180.0) / Math.PI;
+        const prevHeadingDeg = (headingRadRef.current * 180.0) / Math.PI;
+        const fusedHeadingDeg = fuseGyroCompass(prevHeadingDeg, gzDegPerSec, dt, compassHeadingDegRef.current, 0.96);
+        headingRadRef.current = (fusedHeadingDeg * Math.PI) / 180.0;
+        motion.headingRad = headingRadRef.current;
+        motion.headingDeg = fusedHeadingDeg;
 
         const win = windowBufferRef.current;
         win.push(imu);
