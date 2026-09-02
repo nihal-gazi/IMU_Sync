@@ -59,32 +59,31 @@ export default function MLVectorRadar({
           ctx.font = '9px "JetBrains Mono", monospace';
           ctx.textAlign = 'center';
           ctx.textBaseline = 'bottom';
-          ctx.fillText('N (+Vy)', cx, cy - radius - 2);
+          ctx.fillText('N (+Py)', cx, cy - radius - 2);
           ctx.textBaseline = 'top';
-          ctx.fillText('S (-Vy)', cx, cy + radius + 2);
+          ctx.fillText('S (-Py)', cx, cy + radius + 2);
           ctx.textAlign = 'left';
           ctx.textBaseline = 'middle';
-          ctx.fillText('E (+Vx)', cx + radius + 3, cy);
+          ctx.fillText('E (+Px)', cx + radius + 3, cy);
           ctx.textAlign = 'right';
-          ctx.fillText('W (-Vx)', cx - radius - 3, cy);
+          ctx.fillText('W (-Px)', cx - radius - 3, cy);
 
-          // 4. ML Velocity Vector (Vx, Vy)
-          // Default points North (0, -1) if velocity is near zero
-          const motion = motionState?.current || { vx: 0, vy: 0, speed: 0 };
-          const vx = motion.vx || 0;
-          const vy = motion.vy || 0;
-          const speed = Math.hypot(vx, vy);
+          // 4. Vector Arrow POINTING TOWARDS (p.x, p.y)
+          const motion = motionState?.current || { posX: 0, posY: 0, vx: 0, vy: 0, speed: 0 };
+          const px = motion.posX || 0;
+          const py = motion.posY || 0;
+          const posDist = Math.hypot(px, py);
 
           let dirX = 0;
-          let dirY = -1; // North default
-          let arrowLen = radius * 0.35;
+          let dirY = -1; // Default North at origin
+          let arrowLen = radius * 0.4;
 
-          if (speed > 0.01) {
-            dirX = vx / speed;
-            dirY = -vy / speed; // Math +Vy is canvas -Y (North)
-            const maxSpeed = 25.0;
-            const magRatio = Math.min(speed / maxSpeed, 1.0);
-            arrowLen = Math.max(radius * 0.3, radius * magRatio);
+          if (posDist > 0.001) {
+            dirX = px / posDist;
+            dirY = -py / posDist; // Math +Py is canvas -Y (North)
+            const maxPos = 50.0;
+            const magRatio = Math.min(posDist / maxPos, 1.0);
+            arrowLen = Math.max(radius * 0.35, radius * magRatio);
           }
 
           const tipX = cx + dirX * arrowLen;
@@ -146,7 +145,7 @@ export default function MLVectorRadar({
     return () => cancelAnimationFrame(animId);
   }, [motionState]);
 
-  const motion = motionState?.current || { vx: 0, vy: 0, speed: 0, speedKmh: 0 };
+  const motion = motionState?.current || { posX: 0, posY: 0, vx: 0, vy: 0, speed: 0, speedKmh: 0 };
   const hidden = hiddenStateRef?.current || new Float32Array(32);
   let normSq = 0;
   for (let i = 0; i < hidden.length; i++) normSq += hidden[i] * hidden[i];
@@ -166,10 +165,10 @@ export default function MLVectorRadar({
 
   return (
     <div className="ml-view-grid">
-      {/* 1. Polar Velocity Vector Visualizer */}
+      {/* 1. Vector Pointing Towards (p.x, p.y) */}
       <div className="ml-card">
         <div className="radar-header">
-          <span className="card-title">PREDICTED VELOCITY VECTOR // [Vx, Vy]</span>
+          <span className="card-title">PARTICLE VECTOR // POINTING TOWARDS (Px, Py)</span>
           <span className="badge">{isONNXReady ? 'ONNX LIVE' : 'INITIALIZING'}</span>
         </div>
         <div className="radar-body">
@@ -178,27 +177,29 @@ export default function MLVectorRadar({
           </div>
           <div className="vector-readouts">
             <div className="readout-box">
-              <span className="r-label">PREDICTED VELOCITY (Vx, Vy)</span>
+              <span className="r-label">PARTICLE POSITION (Px, Py)</span>
               <span className="r-val highlight-cyan">
-                Vx: {(motion.vx || 0).toFixed(2)} m/s, Vy: {(motion.vy || 0).toFixed(2)} m/s
+                Px: {(motion.posX || 0).toFixed(2)} m, Py: {(motion.posY || 0).toFixed(2)} m
               </span>
-              <span className="r-sub">Default: North [0, 1] at rest</span>
+              <span className="r-sub">Arrow points along (Px, Py) — Default North at origin</span>
             </div>
             <div className="readout-box">
-              <span className="r-label">SPEED MAGNITUDE |v| = √(Vx² + Vy²)</span>
-              <span className="r-val highlight-amber">{(motion.speed || 0).toFixed(2)} m/s</span>
-              <span className="r-sub">{(motion.speedKmh || 0).toFixed(1)} km/h</span>
+              <span className="r-label">INCOMING MODEL VELOCITY (Vx, Vy)</span>
+              <span className="r-val highlight-amber">
+                net.vx: {(motion.vx || 0).toFixed(2)}, net.vy: {(motion.vy || 0).toFixed(2)} m/s
+              </span>
+              <span className="r-sub">Speed: {(motion.speedKmh || 0).toFixed(1)} km/h</span>
             </div>
             <div className="readout-box">
-              <span className="r-label">PARTICLE POSITION UPDATE</span>
-              <span className="r-val">px = px + vx,  py = py + vy</span>
-              <span className="r-sub">Direct velocity accumulation</span>
+              <span className="r-label">MOTION UPDATE FORMULA</span>
+              <span className="r-val">px = px + net.vx,  py = py + net.vy</span>
+              <span className="r-sub">Direct vector accumulation</span>
             </div>
           </div>
         </div>
       </div>
 
-      {/* 2. Normalization Factors & RNN Hidden Representation */}
+      {/* 2. Normalization Factors & RNN Hidden State */}
       <div className="ml-card">
         <div className="radar-header">
           <span className="card-title">NORMALIZATION FACTORS & RNN HIDDEN STATE</span>

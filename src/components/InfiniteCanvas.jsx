@@ -257,7 +257,7 @@ export default function InfiniteCanvas({
         }
       }
 
-      // 4. Draw Center Particle & Velocity Vector Arrow
+      // 4. Draw Center Particle & Vector Arrow POINTING TOWARDS (posX, posY)
       const { sx, sy } = worldToScreen(motion.posX, motion.posY);
 
       // Radar Pulse
@@ -284,21 +284,21 @@ export default function InfiniteCanvas({
       ctx.fill();
       ctx.shadowBlur = 0;
 
-      // Small Line with Arrow Pointing along (Vx, Vy) — default North (0, -1) when at rest
-      const vx = motion.vx || 0;
-      const vy = motion.vy || 0;
-      const speed = Math.hypot(vx, vy);
+      // Small Line with Arrow POINTING TOWARDS (p.x, p.y) — default North (0, -1) at origin
+      const px = motion.posX || 0;
+      const py = motion.posY || 0;
+      const posDist = Math.hypot(px, py);
 
       let dirX = 0;
-      let dirY = -1; // Default North
-      let arrowLen = 32;
+      let dirY = -1; // Default North (canvas screen -Y)
 
-      if (speed > 0.01) {
-        dirX = vx / speed;
-        dirY = -vy / speed; // Math +Vy is canvas -Y
-        arrowLen = Math.min(Math.max(28 + speed * 6, 26), 65);
+      if (posDist > 0.001) {
+        // Points towards (p.x, p.y)
+        dirX = px / posDist;
+        dirY = -py / posDist; // Math +Y (North) corresponds to canvas -Y
       }
 
+      const arrowLen = 34;
       const tipX = sx + dirX * arrowLen;
       const tipY = sy + dirY * arrowLen;
 

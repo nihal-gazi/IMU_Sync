@@ -21,7 +21,7 @@ export default function TopNav({
         <div className="logo-dot"></div>
         <div className="brand-text">
           <span className="brand-title">IMU-SYNC</span>
-          <span className="brand-sub">v0.0.1 // ONNX RUNTIME WEB</span>
+          <span className="brand-sub">v0.0.2 // ONNX RUNTIME WEB</span>
         </div>
       </div>
 
@@ -34,12 +34,12 @@ export default function TopNav({
           </span>
         </div>
         <div className="hud-item">
-          <span className="hud-label">POS (X, Y)</span>
-          <span className="hud-val">{(posX || 0).toFixed(2)}m, {(posY || 0).toFixed(2)}m</span>
+          <span className="hud-label">POS (Px, Py)</span>
+          <span className="hud-val highlight-cyan">{(posX || 0).toFixed(2)}m, {(posY || 0).toFixed(2)}m</span>
         </div>
         <div className="hud-item">
-          <span className="hud-label">VELOCITY (Vx, Vy)</span>
-          <span className="hud-val highlight-cyan">{(vx || 0).toFixed(2)}, {(vy || 0).toFixed(2)} m/s</span>
+          <span className="hud-label">MODEL (net.vx, net.vy)</span>
+          <span className="hud-val">{(vx || 0).toFixed(2)}, {(vy || 0).toFixed(2)} m/s</span>
         </div>
         <div className="hud-item">
           <span className="hud-label">SPEED</span>
@@ -53,7 +53,7 @@ export default function TopNav({
 
       {/* Actions */}
       <div className="header-actions">
-        <button className="btn btn-outline" onClick={onRecenter} title="Recenter Camera on Compass">
+        <button className="btn btn-outline" onClick={onRecenter} title="Recenter Camera on Particle">
           <Compass size={14} />
           Recenter
         </button>
