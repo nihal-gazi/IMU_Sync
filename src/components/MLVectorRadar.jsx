@@ -114,7 +114,7 @@ export default function MLVectorRadar({
           // Vector Arrowhead
           const headLen = 9;
           const headAngle = Math.PI / 6;
-          const stemAngle = Math.atan2(tipY - cy, tipX - sx || 0);
+          const stemAngle = Math.atan2(tipY - cy, tipX - cx);
 
           ctx.fillStyle = '#ffb800';
           ctx.beginPath();

@@ -28,7 +28,7 @@ export default function TopNav({
         <div className="logo-dot"></div>
         <div className="brand-text">
           <span className="brand-title">IMU-SYNC</span>
-          <span className="brand-sub">v0.1.0 // TLIO TRANSFORMER + EKF</span>
+          <span className="brand-sub">v0.1.1 // TLIO TRANSFORMER + EKF</span>
         </div>
       </div>
 
