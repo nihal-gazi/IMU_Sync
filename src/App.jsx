@@ -31,9 +31,8 @@ export default function App() {
   const [simGz, setSimGz] = useState(0);
   const [demoMode, setDemoMode] = useState(null);
   const [mobileSensorStatus, setMobileSensorStatus] = useState('Ready');
-  const [currentImu, setCurrentImu] = useState([0, 0, 9.81, 0, 0, 0]);
 
-  // High-frequency mutable refs for 60fps render loop
+  // Mutable refs for 60fps telemetry & inference loop
   const motionState = useRef({
     posX: 0,
     posY: 0,
@@ -50,7 +49,7 @@ export default function App() {
   const hiddenStateRef = useRef(new Float32Array(32));
   const recenterRef = useRef(null);
 
-  // Initialize buffer with 120 points for smooth oscilloscope waveform from start
+  // 120-sample circular buffers for Oscilloscopes
   const BUFFER_LEN = 120;
   const accelDataRef = useRef([
     new Array(BUFFER_LEN).fill(0),
@@ -63,6 +62,7 @@ export default function App() {
     new Array(BUFFER_LEN).fill(0)
   ]);
 
+  const currentImuRef = useRef([0, 0, 9.81, 0, 0, 0]);
   const phoneImuRef = useRef([0, 0, 9.81, 0, 0, 0]);
   const lastTickTimeRef = useRef(performance.now());
   const replayIndexRef = useRef(0);
@@ -70,13 +70,21 @@ export default function App() {
   const speedMultRef = useRef(1);
   const sourceRef = useRef('replay');
   const demoTimeRef = useRef(0);
+  const simAyRef = useRef(0);
+  const simGzRef = useRef(0);
+  const demoModeRef = useRef(null);
+  const datasetFramesRef = useRef([]);
 
   useEffect(() => { replayIndexRef.current = replayIndex; }, [replayIndex]);
   useEffect(() => { isPlayingRef.current = isPlaying; }, [isPlaying]);
   useEffect(() => { speedMultRef.current = speedMultiplier; }, [speedMultiplier]);
   useEffect(() => { sourceRef.current = source; }, [source]);
+  useEffect(() => { simAyRef.current = simAy; }, [simAy]);
+  useEffect(() => { simGzRef.current = simGz; }, [simGz]);
+  useEffect(() => { demoModeRef.current = demoMode; }, [demoMode]);
+  useEffect(() => { datasetFramesRef.current = datasetFrames; }, [datasetFrames]);
 
-  // Initialize ONNX Runtime Web and Fetch Dataset
+  // Initialize ONNX Runtime Web and Load Dataset
   useEffect(() => {
     async function setup() {
       console.log('[IMU-Sync] Initializing ONNX Runtime Web...');
@@ -88,6 +96,7 @@ export default function App() {
         if (resp.ok) {
           const data = await resp.json();
           setDatasetFrames(data);
+          datasetFramesRef.current = data;
           console.log(`[Replay] Loaded ${data.length} driving frames.`);
         }
       } catch (e) {
@@ -102,22 +111,6 @@ export default function App() {
     onnxInferenceService.setMode(modelMode);
   }, [modelMode]);
 
-  // Push sample to oscilloscope buffers
-  const pushOscilloscopeSample = useCallback((imu) => {
-    const max = 120;
-    const [ax, ay, az, gx, gy, gz] = imu;
-
-    const acc = accelDataRef.current;
-    acc[0].push(ax); if (acc[0].length > max) acc[0].shift();
-    acc[1].push(ay); if (acc[1].length > max) acc[1].shift();
-    acc[2].push(az); if (acc[2].length > max) acc[2].shift();
-
-    const gyr = gyroDataRef.current;
-    gyr[0].push(gx); if (gyr[0].length > max) gyr[0].shift();
-    gyr[1].push(gy); if (gyr[1].length > max) gyr[1].shift();
-    gyr[2].push(gz); if (gyr[2].length > max) gyr[2].shift();
-  }, []);
-
   // Main 60 FPS Telemetry & Inference Loop
   useEffect(() => {
     let animId;
@@ -131,48 +124,89 @@ export default function App() {
 
       let imu = [0, 0, 9.81, 0, 0, 0];
       let stepDt = dt;
+      const frames = datasetFramesRef.current;
+      const curSource = sourceRef.current;
 
-      // 1. Determine IMU Source
-      if (sourceRef.current === 'replay' && datasetFrames.length > 0) {
+      // 1. Source: Dataset Replay
+      if (curSource === 'replay' && frames && frames.length > 0) {
         if (isPlayingRef.current) {
-          replayIndexRef.current = (replayIndexRef.current + speedMultRef.current) % datasetFrames.length;
+          replayIndexRef.current = (replayIndexRef.current + speedMultRef.current) % frames.length;
           setReplayIndex(replayIndexRef.current);
         }
-        const row = datasetFrames[replayIndexRef.current];
+        const row = frames[replayIndexRef.current];
         if (row) {
           imu = [row.ax, row.ay, row.az, row.gx, row.gy, row.gz];
           stepDt = row.dt || 0.1;
         }
-      } else if (sourceRef.current === 'sim') {
-        if (demoMode === 'circle') {
+      } 
+      // 2. Source: Simulator & Manual Joystick
+      else if (curSource === 'sim') {
+        const dMode = demoModeRef.current;
+        if (dMode === 'circle') {
           demoTimeRef.current += dt;
-          imu = [(Math.random() - 0.5) * 0.1, 2.0, 9.81, 0, 0, 0.45];
-        } else if (demoMode === 'fig8') {
-          demoTimeRef.current += dt;
-          imu = [(Math.random() - 0.5) * 0.1, 2.2, 9.81, 0, 0, Math.sin(demoTimeRef.current * 0.8) * 0.6];
-        } else {
           imu = [
-            (Math.random() - 0.5) * 0.1,
-            simAy + (Math.random() - 0.5) * 0.15,
-            9.81,
+            (Math.random() - 0.5) * 0.15,
+            2.5 + (Math.random() - 0.5) * 0.2,
+            9.81 + (Math.random() - 0.5) * 0.1,
             (Math.random() - 0.5) * 0.02,
             (Math.random() - 0.5) * 0.02,
-            simGz
+            0.55 + (Math.random() - 0.5) * 0.03
+          ];
+        } else if (dMode === 'fig8') {
+          demoTimeRef.current += dt;
+          const turnRate = Math.sin(demoTimeRef.current * 0.8) * 0.7;
+          imu = [
+            (Math.random() - 0.5) * 0.15,
+            2.2 + (Math.random() - 0.5) * 0.2,
+            9.81 + (Math.random() - 0.5) * 0.1,
+            (Math.random() - 0.5) * 0.02,
+            (Math.random() - 0.5) * 0.02,
+            turnRate + (Math.random() - 0.5) * 0.03
+          ];
+        } else {
+          // Manual Sliders with subtle realistic sensor noise
+          const noiseAx = (Math.random() - 0.5) * 0.08;
+          const noiseAy = (Math.random() - 0.5) * 0.12;
+          const noiseAz = (Math.random() - 0.5) * 0.1;
+          const noiseGx = (Math.random() - 0.5) * 0.01;
+          const noiseGy = (Math.random() - 0.5) * 0.01;
+          const noiseGz = (Math.random() - 0.5) * 0.015;
+
+          imu = [
+            noiseAx,
+            simAyRef.current + noiseAy,
+            9.81 + noiseAz,
+            noiseGx,
+            noiseGy,
+            simGzRef.current + noiseGz
           ];
         }
         stepDt = dt;
-      } else if (sourceRef.current === 'phone') {
+      } 
+      // 3. Source: Live Smartphone
+      else if (curSource === 'phone') {
         imu = phoneImuRef.current;
         stepDt = dt;
       }
 
-      setCurrentImu(imu);
-      pushOscilloscopeSample(imu);
+      currentImuRef.current = imu;
 
-      // 2. Run ONNX Inference
+      // 2. Push sample to Oscilloscope circular buffers
+      const [ax, ay, az, gx, gy, gz] = imu;
+      const acc = accelDataRef.current;
+      acc[0].push(ax); acc[0].shift();
+      acc[1].push(ay); acc[1].shift();
+      acc[2].push(az); acc[2].shift();
+
+      const gyr = gyroDataRef.current;
+      gyr[0].push(gx); gyr[0].shift();
+      gyr[1].push(gy); gyr[1].shift();
+      gyr[2].push(gz); gyr[2].shift();
+
+      // 3. Run ONNX Inference Step
       const pred = await onnxInferenceService.predictStep(imu, stepDt);
 
-      // 3. Update Motion State & Trajectory
+      // 4. Update Motion State
       const motion = motionState.current;
       motion.posX += pred.dx;
       motion.posY += pred.dy;
@@ -186,12 +220,12 @@ export default function App() {
 
       hiddenStateRef.current = pred.hiddenState;
 
-      // Append to Trail
+      // 5. Append to Trail
       const trail = trailRef.current;
       trail.push({ x: motion.posX, y: motion.posY, speed: motion.speedKmh });
       if (trail.length > 3000) trail.shift();
 
-      // 4. Update HUD Telemetry (Throttled for React State)
+      // 6. Update HUD Telemetry (Throttled for React State)
       hudCounter++;
       if (hudCounter % 4 === 0) {
         setTelemetry({
@@ -208,13 +242,18 @@ export default function App() {
 
     animId = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(animId);
-  }, [datasetFrames, demoMode, simAy, simGz, pushOscilloscopeSample]);
+  }, []);
 
   // Actions
   const handleToggleSource = () => {
-    if (source === 'replay') setSource('sim');
-    else if (source === 'sim') setSource('replay');
-    else setSource('replay');
+    if (source === 'replay') {
+      setSource('sim');
+      setDemoMode(null);
+    } else if (source === 'sim') {
+      setSource('replay');
+    } else {
+      setSource('replay');
+    }
   };
 
   const handleRecenter = () => {
@@ -307,7 +346,7 @@ export default function App() {
         setIsCollapsed={setIsCollapsed}
         accelDataRef={accelDataRef}
         gyroDataRef={gyroDataRef}
-        currentImu={currentImu}
+        currentImuRef={currentImuRef}
         motionState={motionState}
         hiddenStateRef={hiddenStateRef}
         isONNXReady={isONNXReady}

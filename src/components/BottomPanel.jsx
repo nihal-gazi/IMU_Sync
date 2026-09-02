@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { Activity, Radio, Cpu, ChevronDown, Play, Pause, RotateCcw } from 'lucide-react';
 import SensorOscilloscope from './SensorOscilloscope';
 import MLVectorRadar from './MLVectorRadar';
@@ -13,7 +13,7 @@ export default function BottomPanel({
   // Sensor Oscilloscope Props
   accelDataRef,
   gyroDataRef,
-  currentImu,
+  currentImuRef,
   // ML Vector Radar Props
   motionState,
   hiddenStateRef,
@@ -101,26 +101,26 @@ export default function BottomPanel({
         </div>
       </div>
 
-      {/* Tab Content Panes */}
+      {/* Tab Content Panes (Kept mounted with display: block/none to preserve canvas streams) */}
       {!isCollapsed && (
         <div className="tab-content-wrapper">
-          {activeTab === 'sensors' && (
+          <div style={{ display: activeTab === 'sensors' ? 'block' : 'none', height: '100%' }}>
             <SensorOscilloscope
               accelDataRef={accelDataRef}
               gyroDataRef={gyroDataRef}
-              currentImu={currentImu}
+              currentImuRef={currentImuRef}
             />
-          )}
+          </div>
 
-          {activeTab === 'ml' && (
+          <div style={{ display: activeTab === 'ml' ? 'block' : 'none', height: '100%' }}>
             <MLVectorRadar
               motionState={motionState}
               hiddenStateRef={hiddenStateRef}
               isONNXReady={isONNXReady}
             />
-          )}
+          </div>
 
-          {activeTab === 'controls' && (
+          <div style={{ display: activeTab === 'controls' ? 'block' : 'none', height: '100%' }}>
             <div className="control-grid">
               {/* Replay Controls */}
               <div className="control-card">
@@ -131,7 +131,7 @@ export default function BottomPanel({
                   <input
                     type="range"
                     min="0"
-                    max={totalFrames - 1}
+                    max={Math.max(0, totalFrames - 1)}
                     value={replayIndex}
                     onChange={(e) => setReplayIndex(parseInt(e.target.value, 10))}
                     className="custom-slider"
@@ -216,7 +216,7 @@ export default function BottomPanel({
                 </div>
               </div>
             </div>
-          )}
+          </div>
         </div>
       )}
     </footer>
