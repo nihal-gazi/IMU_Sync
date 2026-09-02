@@ -349,6 +349,9 @@ export default function App() {
       // MODE C: SIH Multi-Head Inertial MLP (Dense 120 -> [dx, dy, v, delta_theta])
       // =======================================================================
       else if (curMode === 'sih_mlp') {
+        // Continuous Gyroscope Heading Integration
+        headingRadRef.current += gz * dt;
+
         const win = windowBufferRef.current;
         win.push(imu);
         if (win.length > 20) win.shift();
@@ -363,20 +366,56 @@ export default function App() {
           const sihOut = await onnxInferenceService.predictSihMlp(win.slice(-20));
 
           if (sihOut.isMoving) {
-            headingRadRef.current += sihOut.deltaThetaDeg * (Math.PI / 180.0);
+            // SIH Geodesic Kinematic Projection
+            const dispMeters = Math.hypot(sihOut.dx, sihOut.dy);
+            const heading = headingRadRef.current;
+
+            const dxWorld = dispMeters * Math.sin(heading);
+            const dyWorld = dispMeters * Math.cos(heading);
+            const vxWorld = sihOut.speedMps * Math.sin(heading);
+            const vyWorld = sihOut.speedMps * Math.cos(heading);
+
             curSpeedMpsRef.current = sihOut.speedMps;
 
             const motion = motionState.current;
-            motion.posX += sihOut.dx;
-            motion.posY += sihOut.dy;
-            motion.vx = sihOut.dx / 0.2;
-            motion.vy = sihOut.dy / 0.2;
-            motion.speed = Math.hypot(sihOut.dx, sihOut.dy);
+            motion.posX += dxWorld;
+            motion.posY += dyWorld;
+            motion.vx = vxWorld;
+            motion.vy = vyWorld;
+            motion.speed = dispMeters;
             motion.speedKmh = sihOut.speedKmh;
 
             const trail = trailRef.current;
             trail.push({ x: motion.posX, y: motion.posY, speed: motion.speedKmh });
             if (trail.length > 3000) trail.shift();
+
+            setTelemetry({
+              posX: motion.posX,
+              posY: motion.posY,
+              vx: vxWorld,
+              vy: vyWorld,
+              speedKmh: sihOut.speedKmh,
+              aFwd: dispMeters / 0.2,
+              latencyMs: sihOut.latencyMs,
+              pitchDeg: alignResult.pitchDeg,
+              rollDeg: alignResult.rollDeg,
+              headingDeg: ((heading * 180.0) / Math.PI) % 360,
+              isMoving: true
+            });
+
+            setTransformerMetrics({
+              lastPredDx: dxWorld,
+              lastPredDy: dyWorld,
+              aFwd: 0.0,
+              fwdDispMeters: dispMeters,
+              stepCount: stepCountRef.current,
+              lastUpdateSec: Math.round(performance.now() / 1000),
+              pitchDeg: alignResult.pitchDeg,
+              rollDeg: alignResult.rollDeg,
+              rawGyr: alignResult.rawGyr || [0, 0, 0],
+              alignedGyr: [gx, gy, gz],
+              isMoving: true
+            });
           } else {
             curSpeedMpsRef.current = 0.0;
             const motion = motionState.current;
@@ -384,35 +423,17 @@ export default function App() {
             motion.vy = 0.0;
             motion.speed = 0.0;
             motion.speedKmh = 0.0;
+
+            setTelemetry(prev => ({
+              ...prev,
+              vx: 0.0,
+              vy: 0.0,
+              speedKmh: 0.0,
+              aFwd: 0.0,
+              latencyMs: sihOut.latencyMs,
+              isMoving: false
+            }));
           }
-
-          setTelemetry({
-            posX: motionState.current.posX,
-            posY: motionState.current.posY,
-            vx: motionState.current.vx,
-            vy: motionState.current.vy,
-            speedKmh: curSpeedMpsRef.current * 3.6,
-            aFwd: (curSpeedMpsRef.current - 0) / 0.2,
-            latencyMs: sihOut.latencyMs,
-            pitchDeg: alignResult.pitchDeg,
-            rollDeg: alignResult.rollDeg,
-            headingDeg: ((headingRadRef.current * 180.0) / Math.PI) % 360,
-            isMoving: sihOut.isMoving
-          });
-
-          setTransformerMetrics({
-            lastPredDx: sihOut.dx,
-            lastPredDy: sihOut.dy,
-            aFwd: 0.0,
-            fwdDispMeters: Math.hypot(sihOut.dx, sihOut.dy),
-            stepCount: stepCountRef.current,
-            lastUpdateSec: Math.round(performance.now() / 1000),
-            pitchDeg: alignResult.pitchDeg,
-            rollDeg: alignResult.rollDeg,
-            rawGyr: alignResult.rawGyr || [0, 0, 0],
-            alignedGyr: [gx, gy, gz],
-            isMoving: sihOut.isMoving
-          });
         }
       }
       // =======================================================================

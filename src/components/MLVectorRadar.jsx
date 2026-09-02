@@ -63,31 +63,31 @@ export default function MLVectorRadar({
           ctx.font = '9px "JetBrains Mono", monospace';
           ctx.textAlign = 'center';
           ctx.textBaseline = 'bottom';
-          ctx.fillText('N (+Py)', cx, cy - radius - 2);
+          ctx.fillText('N (+Vy)', cx, cy - radius - 2);
           ctx.textBaseline = 'top';
-          ctx.fillText('S (-Py)', cx, cy + radius + 2);
+          ctx.fillText('S (-Vy)', cx, cy + radius + 2);
           ctx.textAlign = 'left';
           ctx.textBaseline = 'middle';
-          ctx.fillText('E (+Px)', cx + radius + 3, cy);
+          ctx.fillText('E (+Vx)', cx + radius + 3, cy);
           ctx.textAlign = 'right';
-          ctx.fillText('W (-Px)', cx - radius - 3, cy);
+          ctx.fillText('W (-Vx)', cx - radius - 3, cy);
 
-          // 4. Vector Arrow POINTING TOWARDS (p.x, p.y)
+          // 4. Vector Arrow POINTING TOWARDS Instantaneous Velocity (vx, vy)
           const motion = motionState?.current || { posX: 0, posY: 0, vx: 0, vy: 0, speed: 0 };
-          const px = motion.posX || 0;
-          const py = motion.posY || 0;
-          const posDist = Math.hypot(px, py);
+          const vx = motion.vx || 0;
+          const vy = motion.vy || 0;
+          const velMag = Math.hypot(vx, vy);
 
           let dirX = 0;
-          let dirY = -1; // Default North at origin
-          let arrowLen = radius * 0.4;
+          let dirY = -1; // Default North when stationary
+          let arrowLen = radius * 0.35;
 
-          if (posDist > 0.001) {
-            dirX = px / posDist;
-            dirY = -py / posDist; // Math +Py is canvas -Y (North)
-            const maxPos = 50.0;
-            const magRatio = Math.min(posDist / maxPos, 1.0);
-            arrowLen = Math.max(radius * 0.35, radius * magRatio);
+          if (velMag > 0.01) {
+            dirX = vx / velMag;
+            dirY = -vy / velMag; // In canvas coordinates, North (+Vy) is -Y
+            const maxSpeed = 15.0; // 15 m/s (~54 km/h)
+            const magRatio = Math.min(velMag / maxSpeed, 1.0);
+            arrowLen = Math.max(radius * 0.35, radius * (0.35 + 0.65 * magRatio));
           }
 
           const tipX = cx + dirX * arrowLen;
@@ -187,18 +187,18 @@ export default function MLVectorRadar({
           </div>
           <div className="vector-readouts">
             <div className="readout-box">
-              <span className="r-label">PARTICLE POSITION (Px, Py)</span>
+              <span className="r-label">INSTANTANEOUS VELOCITY VECTOR (Vx, Vy)</span>
               <span className="r-val highlight-cyan">
-                Px: {(motion.posX || 0).toFixed(2)} m, Py: {(motion.posY || 0).toFixed(2)} m
+                Vx: {(motion.vx || 0).toFixed(2)} m/s, Vy: {(motion.vy || 0).toFixed(2)} m/s
               </span>
-              <span className="r-sub">Default North at origin (0, 0)</span>
+              <span className="r-sub">Speed: {(motion.speedKmh || 0).toFixed(1)} km/h ({((motion.speed || 0)).toFixed(2)} m/s)</span>
             </div>
             <div className="readout-box">
-              <span className="r-label">1-SECOND TRANSFORMER STEP (Δx, Δy)</span>
+              <span className="r-label">INTEGRATED POSITION (Px, Py)</span>
               <span className="r-val highlight-amber">
-                Δx: {(motion.vx || 0).toFixed(2)}m, Δy: {(motion.vy || 0).toFixed(2)}m
+                Px: {(motion.posX || 0).toFixed(2)}m, Py: {(motion.posY || 0).toFixed(2)}m
               </span>
-              <span className="r-sub">Speed: {(motion.speedKmh || 0).toFixed(1)} km/h</span>
+              <span className="r-sub">Distance from origin: {Math.hypot(motion.posX || 0, motion.posY || 0).toFixed(2)}m</span>
             </div>
             <div className="readout-box">
               <span className="r-label">3D TILT ORIENTATION</span>
