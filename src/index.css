@@ -1,11 +1,11 @@
 /* ==========================================================================
-   IMU-SYNC Cyberpunk Dark Theme Styles (React-JS)
+   IMU-SYNC Cyberpunk Dark Theme Styles (Responsive for Desktop, Tablet & Mobile)
    ========================================================================== */
 
 :root {
   --bg-primary: #060609;
   --bg-secondary: #0c0e17;
-  --bg-card: rgba(15, 17, 26, 0.85);
+  --bg-card: rgba(15, 17, 26, 0.88);
   --bg-card-hover: rgba(24, 27, 40, 0.95);
   --border-color: rgba(255, 255, 255, 0.08);
   --border-active: rgba(0, 240, 255, 0.4);
@@ -29,6 +29,7 @@
   margin: 0;
   padding: 0;
   user-select: none;
+  -webkit-tap-highlight-color: transparent;
 }
 
 html, body, #root {
@@ -53,22 +54,25 @@ html, body, #root {
    ========================================================================== */
 
 .top-nav {
-  height: 52px;
-  background: rgba(8, 9, 15, 0.92);
+  min-height: 52px;
+  background: rgba(8, 9, 15, 0.94);
   backdrop-filter: blur(16px);
   border-bottom: 1px solid var(--border-color);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 18px;
+  padding: 6px 16px;
   z-index: 100;
   flex-shrink: 0;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 
 .brand {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
+  flex-shrink: 0;
 }
 
 .logo-dot {
@@ -107,8 +111,9 @@ html, body, #root {
 /* HUD Metrics */
 .hud-metrics {
   display: flex;
-  gap: 18px;
+  gap: 16px;
   align-items: center;
+  flex-wrap: wrap;
 }
 
 .hud-item {
@@ -125,7 +130,7 @@ html, body, #root {
 }
 
 .hud-val {
-  font-size: 12.5px;
+  font-size: 12px;
   font-weight: 600;
   color: #ffffff;
 }
@@ -138,6 +143,7 @@ html, body, #root {
   display: flex;
   gap: 8px;
   align-items: center;
+  flex-shrink: 0;
 }
 
 /* Common Buttons */
@@ -145,7 +151,7 @@ html, body, #root {
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid var(--border-color);
   color: var(--text-main);
-  padding: 5px 12px;
+  padding: 6px 12px;
   border-radius: 6px;
   font-size: 12px;
   font-family: var(--font-sans);
@@ -191,6 +197,7 @@ html, body, #root {
   background-color: #060609;
   cursor: grab;
   overflow: hidden;
+  touch-action: none;
 }
 
 .canvas-container:active {
@@ -241,7 +248,7 @@ html, body, #root {
   display: flex;
   flex-direction: column;
   gap: 5px;
-  background: rgba(10, 11, 18, 0.8);
+  background: rgba(10, 11, 18, 0.85);
   backdrop-filter: blur(8px);
   border: 1px solid var(--border-color);
   padding: 4px;
@@ -249,8 +256,8 @@ html, body, #root {
 }
 
 .zoom-btn {
-  width: 28px;
-  height: 28px;
+  width: 30px;
+  height: 30px;
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid transparent;
   color: var(--text-main);
@@ -264,7 +271,7 @@ html, body, #root {
   transition: all 0.15s;
 }
 
-.zoom-btn:hover {
+.zoom-btn:hover, .zoom-btn:active {
   background: rgba(0, 240, 255, 0.15);
   border-color: var(--accent-cyan);
   color: var(--accent-cyan);
@@ -275,8 +282,9 @@ html, body, #root {
    ========================================================================== */
 
 .bottom-panel {
-  height: 310px;
-  background: rgba(11, 13, 20, 0.95);
+  height: 320px;
+  max-height: 48vh;
+  background: rgba(11, 13, 20, 0.96);
   backdrop-filter: blur(20px);
   border-top: 1px solid var(--border-color);
   display: flex;
@@ -292,33 +300,37 @@ html, body, #root {
 
 .tab-bar {
   height: 44px;
-  background: rgba(7, 8, 12, 0.9);
+  background: rgba(7, 8, 12, 0.95);
   border-bottom: 1px solid var(--border-color);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 16px;
+  padding: 0 14px;
   flex-shrink: 0;
+  overflow-x: auto;
+  gap: 10px;
 }
 
 .tab-nav-group {
   display: flex;
   gap: 6px;
+  flex-shrink: 0;
 }
 
 .tab-btn {
   background: transparent;
   border: none;
   color: var(--text-muted);
-  padding: 7px 14px;
+  padding: 7px 12px;
   border-radius: 6px;
-  font-size: 12.5px;
+  font-size: 12px;
   font-family: var(--font-sans);
   font-weight: 500;
   cursor: pointer;
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 6px;
+  white-space: nowrap;
   transition: all 0.2s;
 }
 
@@ -336,13 +348,14 @@ html, body, #root {
 .tab-actions {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
+  flex-shrink: 0;
 }
 
 .model-pill-selector {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 4px;
   background: rgba(255, 255, 255, 0.04);
   padding: 2px 4px;
   border-radius: 6px;
@@ -352,7 +365,7 @@ html, body, #root {
 .pill-label {
   font-size: 10.5px;
   color: var(--text-muted);
-  padding-left: 6px;
+  padding-left: 4px;
   font-family: var(--font-mono);
 }
 
@@ -360,11 +373,12 @@ html, body, #root {
   background: transparent;
   border: none;
   color: var(--text-muted);
-  padding: 3px 9px;
+  padding: 3px 8px;
   border-radius: 4px;
-  font-size: 11px;
+  font-size: 10.5px;
   font-family: var(--font-mono);
   cursor: pointer;
+  white-space: nowrap;
   transition: all 0.15s;
 }
 
@@ -400,7 +414,7 @@ html, body, #root {
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 10px 16px;
+  padding: 10px 14px;
 }
 
 /* ==========================================================================
@@ -421,7 +435,7 @@ html, body, #root {
   padding: 10px 14px;
   display: flex;
   flex-direction: column;
-  min-height: 220px;
+  min-height: 200px;
 }
 
 .graph-header {
@@ -429,6 +443,8 @@ html, body, #root {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 6px;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
 .graph-title-group {
@@ -456,6 +472,7 @@ html, body, #root {
   gap: 10px;
   font-family: var(--font-mono);
   font-size: 10.5px;
+  flex-wrap: wrap;
 }
 
 .legend-item {
@@ -486,7 +503,8 @@ html, body, #root {
   flex: 1;
   position: relative;
   width: 100%;
-  height: calc(100% - 28px);
+  min-height: 140px;
+  height: 100%;
 }
 
 .canvas-wrapper canvas {
@@ -520,13 +538,15 @@ html, body, #root {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 8px;
+  flex-wrap: wrap;
+  gap: 4px;
 }
 
 .card-title {
   font-family: var(--font-mono);
-  font-size: 11.5px;
+  font-size: 11px;
   font-weight: 700;
-  letter-spacing: 1px;
+  letter-spacing: 0.5px;
   color: var(--text-main);
 }
 
@@ -548,8 +568,8 @@ html, body, #root {
 }
 
 .radar-canvas-box {
-  width: 170px;
-  height: 170px;
+  width: 160px;
+  height: 160px;
   flex-shrink: 0;
   position: relative;
 }
@@ -563,7 +583,7 @@ html, body, #root {
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
 
 .readout-box {
@@ -575,20 +595,20 @@ html, body, #root {
 }
 
 .r-label {
-  font-size: 8.5px;
+  font-size: 8px;
   color: var(--text-muted);
   display: block;
 }
 
 .r-val {
-  font-size: 14px;
+  font-size: 13.5px;
   font-weight: 700;
   display: block;
   margin: 1px 0;
 }
 
 .r-sub {
-  font-size: 9.5px;
+  font-size: 9px;
   color: var(--text-dim);
 }
 
@@ -629,7 +649,7 @@ html, body, #root {
 }
 
 .model-explanation {
-  font-size: 10.5px;
+  font-size: 10px;
   color: var(--text-muted);
   margin-top: 8px;
   line-height: 1.4;
@@ -665,33 +685,16 @@ html, body, #root {
 }
 
 .control-title {
-  font-size: 12.5px;
+  font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.5px;
   color: var(--text-main);
 }
 
 .card-desc {
-  font-size: 10.5px;
+  font-size: 10px;
   color: var(--text-muted);
   line-height: 1.4;
-}
-
-.custom-select {
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid var(--border-color);
-  color: var(--text-main);
-  padding: 5px 8px;
-  border-radius: 6px;
-  font-size: 11.5px;
-  width: 100%;
-  outline: none;
-  font-family: var(--font-sans);
-}
-
-.custom-select option {
-  background: #151824;
-  color: #fff;
 }
 
 .replay-scrubber-row {
@@ -718,6 +721,7 @@ html, body, #root {
   display: flex;
   align-items: center;
   gap: 6px;
+  flex-wrap: wrap;
 }
 
 .speed-selector {
@@ -733,7 +737,7 @@ html, body, #root {
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid var(--border-color);
   color: var(--text-muted);
-  padding: 2px 5px;
+  padding: 3px 6px;
   border-radius: 4px;
   font-size: 9.5px;
   font-family: var(--font-mono);
@@ -750,6 +754,7 @@ html, body, #root {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
 }
 
 .sensor-permission-status {
@@ -762,11 +767,11 @@ html, body, #root {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 10.5px;
+  font-size: 10px;
 }
 
 .slider-row label {
-  width: 130px;
+  width: 120px;
   color: var(--text-muted);
 }
 
@@ -781,19 +786,89 @@ html, body, #root {
   display: flex;
   gap: 5px;
   margin-top: auto;
+  flex-wrap: wrap;
 }
 
-/* Scrollbars */
-::-webkit-scrollbar {
-  width: 5px;
-  height: 5px;
+/* ==========================================================================
+   Responsive Breakpoints for Tablets & Mobile
+   ========================================================================== */
+
+/* Tablet Landscape & Small Laptops (<= 1024px) */
+@media (max-width: 1024px) {
+  .top-nav {
+    padding: 6px 12px;
+  }
+  .hud-metrics {
+    gap: 12px;
+  }
+  .control-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+  .control-card:last-child {
+    grid-column: span 2;
+  }
 }
 
-::-webkit-scrollbar-track {
-  background: rgba(0, 0, 0, 0.2);
+/* Tablet Portrait & Large Phones (<= 850px) */
+@media (max-width: 850px) {
+  .top-nav {
+    min-height: auto;
+    padding: 8px 12px;
+    gap: 8px;
+  }
+  .hud-metrics {
+    order: 3;
+    width: 100%;
+    justify-content: space-around;
+    padding-top: 4px;
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+  }
+  .sensor-graphs-grid {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+  .graph-card {
+    min-height: 170px;
+  }
+  .ml-view-grid {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+  .radar-body {
+    flex-direction: row;
+  }
+  .control-grid {
+    grid-template-columns: 1fr;
+  }
+  .control-card:last-child {
+    grid-column: span 1;
+  }
+  .bottom-panel {
+    height: 360px;
+    max-height: 52vh;
+  }
 }
 
-::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 3px;
+/* Mobile Screens (<= 560px) */
+@media (max-width: 560px) {
+  .brand-sub {
+    display: none;
+  }
+  .header-actions .btn span:not(.status-indicator) {
+    display: none;
+  }
+  .radar-body {
+    flex-direction: column;
+    align-items: center;
+  }
+  .radar-canvas-box {
+    width: 140px;
+    height: 140px;
+  }
+  .vector-readouts {
+    width: 100%;
+  }
+  .pill-label {
+    display: none;
+  }
 }

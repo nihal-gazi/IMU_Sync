@@ -14,104 +14,114 @@ export default function SensorOscilloscope({
     const renderScope = (canvas, dataRef, channels, yMinDefault, yMaxDefault) => {
       if (!canvas) return;
       const ctx = canvas.getContext('2d');
-      const w = canvas.width / (window.devicePixelRatio || 1);
-      const h = canvas.height / (window.devicePixelRatio || 1);
-      if (!w || !h) return;
+      const dpr = window.devicePixelRatio || 1;
+      const rect = canvas.parentElement.getBoundingClientRect();
 
-      ctx.clearRect(0, 0, w, h);
+      const targetW = Math.floor(rect.width);
+      const targetH = Math.floor(rect.height);
+      if (targetW <= 0 || targetH <= 0) return;
 
-      // Grid
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.04)';
+      if (canvas.width !== targetW * dpr || canvas.height !== targetH * dpr) {
+        canvas.width = targetW * dpr;
+        canvas.height = targetH * dpr;
+      }
+
+      ctx.save();
+      ctx.scale(dpr, dpr);
+      ctx.clearRect(0, 0, targetW, targetH);
+
+      // Grid Lines
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
       ctx.lineWidth = 1;
       ctx.beginPath();
       for (let i = 1; i <= 3; i++) {
-        const y = (h / 4) * i;
+        const y = (targetH / 4) * i;
         ctx.moveTo(0, y);
-        ctx.lineTo(w, y);
+        ctx.lineTo(targetW, y);
       }
       for (let i = 1; i <= 5; i++) {
-        const x = (w / 6) * i;
+        const x = (targetW / 6) * i;
         ctx.moveTo(x, 0);
-        ctx.lineTo(x, h);
+        ctx.lineTo(x, targetH);
       }
       ctx.stroke();
 
-      const history = dataRef.current;
-      const count = history[0].length;
-      if (count < 2) return;
+      const history = dataRef.current || [[], [], []];
+      const count = history[0] ? history[0].length : 0;
 
-      // Dynamic Auto-scaling
-      let minVal = Infinity;
-      let maxVal = -Infinity;
-      for (let c = 0; c < channels.length; c++) {
-        for (let i = 0; i < count; i++) {
-          const v = history[c][i];
-          if (v < minVal) minVal = v;
-          if (v > maxVal) maxVal = v;
+      if (count >= 2) {
+        // Compute min/max for auto-scaling
+        let minVal = yMinDefault;
+        let maxVal = yMaxDefault;
+        for (let c = 0; c < channels.length; c++) {
+          if (!history[c]) continue;
+          for (let i = 0; i < count; i++) {
+            const v = history[c][i];
+            if (v < minVal) minVal = v;
+            if (v > maxVal) maxVal = v;
+          }
+        }
+        const margin = Math.max(Math.abs(maxVal - minVal) * 0.15, 0.5);
+        const yMin = minVal - margin;
+        const yMax = maxVal + margin;
+        const range = yMax - yMin || 1;
+
+        // Zero-line
+        const zeroY = targetH - ((0 - yMin) / range) * targetH;
+        if (zeroY >= 0 && zeroY <= targetH) {
+          ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.moveTo(0, zeroY);
+          ctx.lineTo(targetW, zeroY);
+          ctx.stroke();
+        }
+
+        // Draw waveform channels
+        const dx = targetW / (count - 1);
+        for (let c = 0; c < channels.length; c++) {
+          if (!history[c] || history[c].length === 0) continue;
+          ctx.strokeStyle = channels[c].color;
+          ctx.lineWidth = 2.0;
+          ctx.lineJoin = 'round';
+          ctx.lineCap = 'round';
+          ctx.beginPath();
+
+          for (let i = 0; i < count; i++) {
+            const val = history[c][i] !== undefined ? history[c][i] : 0;
+            const x = i * dx;
+            const y = targetH - ((val - yMin) / range) * targetH;
+            if (i === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+          }
+          ctx.stroke();
         }
       }
-      const margin = Math.max(Math.abs(maxVal - minVal) * 0.2, 1.0);
-      const yMin = minVal - margin;
-      const yMax = maxVal + margin;
-      const range = yMax - yMin || 1;
 
-      // Zero-line
-      const zeroY = h - ((0 - yMin) / range) * h;
-      if (zeroY >= 0 && zeroY <= h) {
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(0, zeroY);
-        ctx.lineTo(w, zeroY);
-        ctx.stroke();
-      }
-
-      // Draw waveforms
-      const dx = w / (count - 1);
-      for (let c = 0; c < channels.length; c++) {
-        ctx.strokeStyle = channels[c].color;
-        ctx.lineWidth = 1.8;
-        ctx.lineJoin = 'round';
-        ctx.lineCap = 'round';
-        ctx.beginPath();
-
-        for (let i = 0; i < count; i++) {
-          const val = history[c][i];
-          const x = i * dx;
-          const y = h - ((val - yMin) / range) * h;
-          if (i === 0) ctx.moveTo(x, y);
-          else ctx.lineTo(x, y);
-        }
-        ctx.stroke();
-      }
+      ctx.restore();
     };
 
     const loop = () => {
-      const dpr = window.devicePixelRatio || 1;
-
-      // Resize if needed
-      [accelCanvasRef.current, gyroCanvasRef.current].forEach(canvas => {
-        if (!canvas) return;
-        const rect = canvas.parentElement.getBoundingClientRect();
-        if (canvas.width !== rect.width * dpr || canvas.height !== rect.height * dpr) {
-          canvas.width = rect.width * dpr;
-          canvas.height = rect.height * dpr;
-          canvas.getContext('2d').scale(dpr, dpr);
-        }
-      });
-
       renderScope(
         accelCanvasRef.current,
         accelDataRef,
-        [{ color: '#ff4757' }, { color: '#2ed573' }, { color: '#1e90ff' }],
-        -15, 15
+        [
+          { color: '#ff4757' }, // Ax (Red)
+          { color: '#2ed573' }, // Ay (Green)
+          { color: '#1e90ff' }  // Az (Blue)
+        ],
+        -12, 12
       );
 
       renderScope(
         gyroCanvasRef.current,
         gyroDataRef,
-        [{ color: '#ffa502' }, { color: '#00d2d3' }, { color: '#ff4757' }],
-        -3, 3
+        [
+          { color: '#ffa502' }, // Gx (Orange)
+          { color: '#00d2d3' }, // Gy (Cyan)
+          { color: '#ff4757' }  // Gz (Magenta)
+        ],
+        -2.5, 2.5
       );
 
       animId = requestAnimationFrame(loop);
@@ -121,7 +131,8 @@ export default function SensorOscilloscope({
     return () => cancelAnimationFrame(animId);
   }, [accelDataRef, gyroDataRef]);
 
-  const [ax, ay, az, gx, gy, gz] = currentImu;
+  const imu = currentImu || [0, 0, 9.81, 0, 0, 0];
+  const [ax, ay, az, gx, gy, gz] = imu;
 
   return (
     <div className="sensor-graphs-grid">
@@ -133,9 +144,9 @@ export default function SensorOscilloscope({
             <span className="graph-unit">[m/s²]</span>
           </div>
           <div className="graph-legend">
-            <span className="legend-item"><span className="legend-color dot-ax"></span>Ax: <b>{(ax >= 0 ? '+' : '') + ax.toFixed(2)}</b></span>
-            <span className="legend-item"><span className="legend-color dot-ay"></span>Ay: <b>{(ay >= 0 ? '+' : '') + ay.toFixed(2)}</b></span>
-            <span className="legend-item"><span className="legend-color dot-az"></span>Az: <b>{(az >= 0 ? '+' : '') + az.toFixed(2)}</b></span>
+            <span className="legend-item"><span className="legend-color dot-ax"></span>Ax: <b>{(ax >= 0 ? '+' : '') + (ax || 0).toFixed(2)}</b></span>
+            <span className="legend-item"><span className="legend-color dot-ay"></span>Ay: <b>{(ay >= 0 ? '+' : '') + (ay || 0).toFixed(2)}</b></span>
+            <span className="legend-item"><span className="legend-color dot-az"></span>Az: <b>{(az >= 0 ? '+' : '') + (az || 0).toFixed(2)}</b></span>
           </div>
         </div>
         <div className="canvas-wrapper">
@@ -151,9 +162,9 @@ export default function SensorOscilloscope({
             <span className="graph-unit">[rad/s]</span>
           </div>
           <div className="graph-legend">
-            <span className="legend-item"><span className="legend-color dot-gx"></span>Gx: <b>{(gx >= 0 ? '+' : '') + gx.toFixed(3)}</b></span>
-            <span className="legend-item"><span className="legend-color dot-gy"></span>Gy: <b>{(gy >= 0 ? '+' : '') + gy.toFixed(3)}</b></span>
-            <span className="legend-item"><span className="legend-color dot-gz"></span>Gz: <b>{(gz >= 0 ? '+' : '') + gz.toFixed(3)}</b></span>
+            <span className="legend-item"><span className="legend-color dot-gx"></span>Gx: <b>{(gx >= 0 ? '+' : '') + (gx || 0).toFixed(3)}</b></span>
+            <span className="legend-item"><span className="legend-color dot-gy"></span>Gy: <b>{(gy >= 0 ? '+' : '') + (gy || 0).toFixed(3)}</b></span>
+            <span className="legend-item"><span className="legend-color dot-gz"></span>Gz: <b>{(gz >= 0 ? '+' : '') + (gz || 0).toFixed(3)}</b></span>
           </div>
         </div>
         <div className="canvas-wrapper">

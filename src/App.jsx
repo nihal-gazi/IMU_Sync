@@ -50,8 +50,18 @@ export default function App() {
   const hiddenStateRef = useRef(new Float32Array(32));
   const recenterRef = useRef(null);
 
-  const accelDataRef = useRef([[], [], []]); // [ax, ay, az]
-  const gyroDataRef = useRef([[], [], []]);  // [gx, gy, gz]
+  // Initialize buffer with 120 points for smooth oscilloscope waveform from start
+  const BUFFER_LEN = 120;
+  const accelDataRef = useRef([
+    new Array(BUFFER_LEN).fill(0),
+    new Array(BUFFER_LEN).fill(0),
+    new Array(BUFFER_LEN).fill(9.81)
+  ]);
+  const gyroDataRef = useRef([
+    new Array(BUFFER_LEN).fill(0),
+    new Array(BUFFER_LEN).fill(0),
+    new Array(BUFFER_LEN).fill(0)
+  ]);
 
   const phoneImuRef = useRef([0, 0, 9.81, 0, 0, 0]);
   const lastTickTimeRef = useRef(performance.now());
