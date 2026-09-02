@@ -63,32 +63,24 @@ export default function MLVectorRadar({
           ctx.font = '9px "JetBrains Mono", monospace';
           ctx.textAlign = 'center';
           ctx.textBaseline = 'bottom';
-          ctx.fillText('N (+Vy)', cx, cy - radius - 2);
+          ctx.fillText('N (0°)', cx, cy - radius - 2);
           ctx.textBaseline = 'top';
-          ctx.fillText('S (-Vy)', cx, cy + radius + 2);
+          ctx.fillText('S (180°)', cx, cy + radius + 2);
           ctx.textAlign = 'left';
           ctx.textBaseline = 'middle';
-          ctx.fillText('E (+Vx)', cx + radius + 3, cy);
+          ctx.fillText('E (90°)', cx + radius + 3, cy);
           ctx.textAlign = 'right';
-          ctx.fillText('W (-Vx)', cx - radius - 3, cy);
+          ctx.fillText('W (270°)', cx - radius - 3, cy);
 
-          // 4. Vector Arrow POINTING TOWARDS Instantaneous Velocity (vx, vy)
-          const motion = motionState?.current || { posX: 0, posY: 0, vx: 0, vy: 0, speed: 0 };
-          const vx = motion.vx || 0;
-          const vy = motion.vy || 0;
-          const velMag = Math.hypot(vx, vy);
+          // 4. Vector Arrow POINTING TOWARDS GYROSCOPE HEADING (θ)
+          const motion = motionState?.current || { posX: 0, posY: 0, vx: 0, vy: 0, speed: 0, headingRad: 0 };
+          const heading = (motion.headingRad !== undefined) ? motion.headingRad : 0.0;
+          const dirX = Math.sin(heading);
+          const dirY = -Math.cos(heading); // In canvas space, North is -Y, East is +X
 
-          let dirX = 0;
-          let dirY = -1; // Default North when stationary
-          let arrowLen = radius * 0.35;
-
-          if (velMag > 0.01) {
-            dirX = vx / velMag;
-            dirY = -vy / velMag; // In canvas coordinates, North (+Vy) is -Y
-            const maxSpeed = 15.0; // 15 m/s (~54 km/h)
-            const magRatio = Math.min(velMag / maxSpeed, 1.0);
-            arrowLen = Math.max(radius * 0.35, radius * (0.35 + 0.65 * magRatio));
-          }
+          const speedKmh = motion.speedKmh || 0.0;
+          const magRatio = Math.min(speedKmh / 60.0, 1.0);
+          const arrowLen = Math.max(radius * 0.45, radius * (0.45 + 0.55 * magRatio));
 
           const tipX = cx + dirX * arrowLen;
           const tipY = cy + dirY * arrowLen;

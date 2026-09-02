@@ -284,21 +284,12 @@ export default function InfiniteCanvas({
       ctx.fill();
       ctx.shadowBlur = 0;
 
-      // Small Line with Arrow POINTING TOWARDS (p.x, p.y) — default North (0, -1) at origin
-      const px = motion.posX || 0;
-      const py = motion.posY || 0;
-      const posDist = Math.hypot(px, py);
+      // Vector Arrow POINTING TOWARDS GYROSCOPE HEADING (θ)
+      const heading = (motion.headingRad !== undefined) ? motion.headingRad : 0.0;
+      const dirX = Math.sin(heading);
+      const dirY = -Math.cos(heading); // In canvas screen space, North is -Y, East is +X
 
-      let dirX = 0;
-      let dirY = -1; // Default North (canvas screen -Y)
-
-      if (posDist > 0.001) {
-        // Points towards (p.x, p.y)
-        dirX = px / posDist;
-        dirY = -py / posDist; // Math +Y (North) corresponds to canvas -Y
-      }
-
-      const arrowLen = 34;
+      const arrowLen = 36;
       const tipX = sx + dirX * arrowLen;
       const tipY = sy + dirY * arrowLen;
 

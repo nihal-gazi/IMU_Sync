@@ -242,10 +242,12 @@ export default function App() {
       acc[1].push(ay); acc[1].shift();
       acc[2].push(az); acc[2].shift();
 
-      const gyr = gyroDataRef.current;
-      gyr[0].push(gx); gyr[0].shift();
-      gyr[1].push(gy); gyr[1].shift();
-      gyr[2].push(gz); gyr[2].shift();
+      // Continuous Gyroscope Heading Integration (Real-Time 60 FPS)
+      headingRadRef.current += gz * dt;
+      const curHeading = headingRadRef.current;
+      const motion = motionState.current;
+      motion.headingRad = curHeading;
+      motion.headingDeg = ((curHeading * 180.0) / Math.PI) % 360;
 
       const curMode = modelModeRef.current;
 
@@ -255,6 +257,8 @@ export default function App() {
       if (curMode === 'ekf') {
         const ekfOut = ekfFilterService.step(imu, dt);
         headingRadRef.current = ekfOut.headingRad;
+        motion.headingRad = ekfOut.headingRad;
+        motion.headingDeg = ekfOut.headingDeg;
         curSpeedMpsRef.current = ekfOut.speedMps;
 
         const motion = motionState.current;
