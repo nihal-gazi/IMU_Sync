@@ -1,29 +1,27 @@
 /* ==========================================================================
-   IMU-SYNC Modern Dark / Cyberpunk Theme
+   IMU-SYNC Cyberpunk Dark Theme Styles (React-JS)
    ========================================================================== */
 
 :root {
-  --bg-primary: #07070a;
-  --bg-secondary: #0f1016;
-  --bg-card: rgba(18, 20, 29, 0.85);
-  --bg-card-hover: rgba(26, 29, 43, 0.9);
+  --bg-primary: #060609;
+  --bg-secondary: #0c0e17;
+  --bg-card: rgba(15, 17, 26, 0.85);
+  --bg-card-hover: rgba(24, 27, 40, 0.95);
   --border-color: rgba(255, 255, 255, 0.08);
   --border-active: rgba(0, 240, 255, 0.4);
-  
+
   --accent-cyan: #00f0ff;
   --accent-amber: #ffb800;
   --accent-magenta: #ff007f;
   --accent-green: #00ff88;
   --accent-purple: #9d4edd;
-  
+
   --text-main: #f0f2f8;
   --text-muted: #7e869e;
   --text-dim: #4a5168;
 
   --font-sans: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --font-mono: 'JetBrains Mono', monospace;
-
-  --bottom-panel-height: 320px;
 }
 
 * {
@@ -33,15 +31,21 @@
   user-select: none;
 }
 
-body {
+html, body, #root {
   background-color: var(--bg-primary);
   color: var(--text-main);
   font-family: var(--font-sans);
   overflow: hidden;
   height: 100vh;
   width: 100vw;
+}
+
+.app-container {
   display: flex;
   flex-direction: column;
+  height: 100vh;
+  width: 100vw;
+  position: relative;
 }
 
 /* ==========================================================================
@@ -50,13 +54,13 @@ body {
 
 .top-nav {
   height: 52px;
-  background: rgba(10, 11, 17, 0.9);
+  background: rgba(8, 9, 15, 0.92);
   backdrop-filter: blur(16px);
   border-bottom: 1px solid var(--border-color);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 20px;
+  padding: 0 18px;
   z-index: 100;
   flex-shrink: 0;
 }
@@ -68,8 +72,8 @@ body {
 }
 
 .logo-dot {
-  width: 12px;
-  height: 12px;
+  width: 10px;
+  height: 10px;
   border-radius: 50%;
   background: var(--accent-cyan);
   box-shadow: 0 0 12px var(--accent-cyan);
@@ -78,7 +82,7 @@ body {
 
 @keyframes pulse-glow {
   0%, 100% { opacity: 0.8; transform: scale(1); }
-  50% { opacity: 1; transform: scale(1.15); box-shadow: 0 0 18px var(--accent-cyan); }
+  50% { opacity: 1; transform: scale(1.2); box-shadow: 0 0 16px var(--accent-cyan); }
 }
 
 .brand-text {
@@ -87,7 +91,7 @@ body {
 }
 
 .brand-title {
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 700;
   letter-spacing: 2px;
   color: #fff;
@@ -95,7 +99,7 @@ body {
 }
 
 .brand-sub {
-  font-size: 9px;
+  font-size: 8.5px;
   color: var(--text-muted);
   letter-spacing: 1px;
 }
@@ -103,7 +107,7 @@ body {
 /* HUD Metrics */
 .hud-metrics {
   display: flex;
-  gap: 20px;
+  gap: 18px;
   align-items: center;
 }
 
@@ -115,13 +119,13 @@ body {
 }
 
 .hud-label {
-  font-size: 9px;
+  font-size: 8.5px;
   color: var(--text-muted);
   letter-spacing: 0.5px;
 }
 
 .hud-val {
-  font-size: 13px;
+  font-size: 12.5px;
   font-weight: 600;
   color: #ffffff;
 }
@@ -132,7 +136,7 @@ body {
 
 .header-actions {
   display: flex;
-  gap: 10px;
+  gap: 8px;
   align-items: center;
 }
 
@@ -141,7 +145,7 @@ body {
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid var(--border-color);
   color: var(--text-main);
-  padding: 6px 14px;
+  padding: 5px 12px;
   border-radius: 6px;
   font-size: 12px;
   font-family: var(--font-sans);
@@ -166,7 +170,7 @@ body {
 
 .btn-primary:hover {
   background: rgba(0, 240, 255, 0.22);
-  box-shadow: 0 0 14px rgba(0, 240, 255, 0.3);
+  box-shadow: 0 0 12px rgba(0, 240, 255, 0.3);
 }
 
 .status-indicator {
@@ -193,7 +197,7 @@ body {
   cursor: grabbing;
 }
 
-#gridCanvas {
+.grid-canvas {
   display: block;
   width: 100%;
   height: 100%;
@@ -207,7 +211,7 @@ body {
 }
 
 .coordinate-crosshair {
-  background: rgba(10, 11, 18, 0.75);
+  background: rgba(10, 11, 18, 0.8);
   backdrop-filter: blur(8px);
   border: 1px solid var(--border-color);
   padding: 4px 10px;
@@ -236,7 +240,7 @@ body {
 .zoom-controls {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 5px;
   background: rgba(10, 11, 18, 0.8);
   backdrop-filter: blur(8px);
   border: 1px solid var(--border-color);
@@ -252,8 +256,11 @@ body {
   color: var(--text-main);
   border-radius: 4px;
   font-family: var(--font-mono);
-  font-size: 14px;
+  font-size: 13px;
   cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   transition: all 0.15s;
 }
 
@@ -268,8 +275,8 @@ body {
    ========================================================================== */
 
 .bottom-panel {
-  height: var(--bottom-panel-height);
-  background: rgba(12, 14, 22, 0.95);
+  height: 310px;
+  background: rgba(11, 13, 20, 0.95);
   backdrop-filter: blur(20px);
   border-top: 1px solid var(--border-color);
   display: flex;
@@ -285,7 +292,7 @@ body {
 
 .tab-bar {
   height: 44px;
-  background: rgba(8, 9, 14, 0.8);
+  background: rgba(7, 8, 12, 0.9);
   border-bottom: 1px solid var(--border-color);
   display: flex;
   align-items: center;
@@ -303,15 +310,15 @@ body {
   background: transparent;
   border: none;
   color: var(--text-muted);
-  padding: 8px 14px;
+  padding: 7px 14px;
   border-radius: 6px;
-  font-size: 13px;
+  font-size: 12.5px;
   font-family: var(--font-sans);
   font-weight: 500;
   cursor: pointer;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 7px;
   transition: all 0.2s;
 }
 
@@ -329,14 +336,13 @@ body {
 .tab-actions {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 12px;
 }
 
-/* Model Architecture Selector Pill */
 .model-pill-selector {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   background: rgba(255, 255, 255, 0.04);
   padding: 2px 4px;
   border-radius: 6px;
@@ -344,7 +350,7 @@ body {
 }
 
 .pill-label {
-  font-size: 11px;
+  font-size: 10.5px;
   color: var(--text-muted);
   padding-left: 6px;
   font-family: var(--font-mono);
@@ -354,7 +360,7 @@ body {
   background: transparent;
   border: none;
   color: var(--text-muted);
-  padding: 4px 10px;
+  padding: 3px 9px;
   border-radius: 4px;
   font-size: 11px;
   font-family: var(--font-mono);
@@ -389,21 +395,12 @@ body {
   transform: rotate(180deg);
 }
 
-/* Tab Content Areas */
+/* Tab Content */
 .tab-content-wrapper {
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 12px 16px;
-}
-
-.tab-pane {
-  display: none;
-  height: 100%;
-}
-
-.tab-pane.active {
-  display: block;
+  padding: 10px 16px;
 }
 
 /* ==========================================================================
@@ -413,7 +410,7 @@ body {
 .sensor-graphs-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 14px;
+  gap: 12px;
   height: 100%;
 }
 
@@ -424,14 +421,14 @@ body {
   padding: 10px 14px;
   display: flex;
   flex-direction: column;
-  min-height: 230px;
+  min-height: 220px;
 }
 
 .graph-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 8px;
+  margin-bottom: 6px;
 }
 
 .graph-title-group {
@@ -442,7 +439,7 @@ body {
 
 .graph-title {
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: 11.5px;
   font-weight: 700;
   letter-spacing: 1px;
   color: var(--text-main);
@@ -450,15 +447,15 @@ body {
 
 .graph-unit {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 9.5px;
   color: var(--text-muted);
 }
 
 .graph-legend {
   display: flex;
-  gap: 12px;
+  gap: 10px;
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 10.5px;
 }
 
 .legend-item {
@@ -473,15 +470,14 @@ body {
 }
 
 .legend-color {
-  width: 8px;
-  height: 8px;
+  width: 7px;
+  height: 7px;
   border-radius: 2px;
 }
 
-.dot-x { background: #ff4757; }
-.dot-y { background: #2ed573; }
-.dot-z { background: #1e90ff; }
-
+.dot-ax { background: #ff4757; }
+.dot-ay { background: #2ed573; }
+.dot-az { background: #1e90ff; }
 .dot-gx { background: #ffa502; }
 .dot-gy { background: #00d2d3; }
 .dot-gz { background: #ff4757; }
@@ -490,7 +486,7 @@ body {
   flex: 1;
   position: relative;
   width: 100%;
-  height: calc(100% - 30px);
+  height: calc(100% - 28px);
 }
 
 .canvas-wrapper canvas {
@@ -500,13 +496,13 @@ body {
 }
 
 /* ==========================================================================
-   Tab 2: ML Polar Vector & Hidden States
+   Tab 2: ML Polar Vector & Hidden State
    ========================================================================== */
 
 .ml-view-grid {
   display: grid;
   grid-template-columns: 1.2fr 1fr;
-  gap: 14px;
+  gap: 12px;
   height: 100%;
 }
 
@@ -514,7 +510,7 @@ body {
   background: var(--bg-card);
   border: 1px solid var(--border-color);
   border-radius: 8px;
-  padding: 12px 16px;
+  padding: 10px 14px;
   display: flex;
   flex-direction: column;
 }
@@ -523,12 +519,12 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
 }
 
 .card-title {
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: 11.5px;
   font-weight: 700;
   letter-spacing: 1px;
   color: var(--text-main);
@@ -539,21 +535,21 @@ body {
   border: 1px solid var(--accent-green);
   color: var(--accent-green);
   font-family: var(--font-mono);
-  font-size: 10px;
-  padding: 2px 8px;
+  font-size: 9.5px;
+  padding: 2px 7px;
   border-radius: 4px;
 }
 
 .radar-body {
   display: flex;
-  gap: 16px;
+  gap: 14px;
   align-items: center;
   flex: 1;
 }
 
 .radar-canvas-box {
-  width: 180px;
-  height: 180px;
+  width: 170px;
+  height: 170px;
   flex-shrink: 0;
   position: relative;
 }
@@ -567,59 +563,51 @@ body {
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
 }
 
 .readout-box {
   background: rgba(255, 255, 255, 0.03);
   border-radius: 6px;
-  padding: 6px 12px;
+  padding: 5px 10px;
   border: 1px solid var(--border-color);
   font-family: var(--font-mono);
 }
 
 .r-label {
-  font-size: 9px;
+  font-size: 8.5px;
   color: var(--text-muted);
   display: block;
 }
 
 .r-val {
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 700;
   display: block;
-  margin: 2px 0;
+  margin: 1px 0;
 }
 
 .r-sub {
-  font-size: 10px;
+  font-size: 9.5px;
   color: var(--text-dim);
 }
 
 .highlight-cyan { color: var(--accent-cyan); }
 .highlight-amber { color: var(--accent-amber); }
 
-/* Hidden States Grid */
-.hidden-state-body {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-  justify-content: space-between;
-}
-
 .state-meta {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 10.5px;
   color: var(--accent-cyan);
 }
 
 .neurons-bar-grid {
   display: grid;
   grid-template-columns: repeat(16, 1fr);
-  gap: 4px;
-  height: 80px;
+  gap: 3px;
+  height: 75px;
   background: rgba(0, 0, 0, 0.4);
-  padding: 8px;
+  padding: 6px;
   border-radius: 6px;
   border: 1px solid var(--border-color);
   align-items: center;
@@ -637,14 +625,14 @@ body {
   width: 100%;
   background: var(--accent-cyan);
   border-radius: 2px;
-  transition: height 0.05s ease-out, background-color 0.1s;
+  transition: height 0.05s ease-out;
 }
 
 .model-explanation {
-  font-size: 11px;
+  font-size: 10.5px;
   color: var(--text-muted);
-  margin-top: 10px;
-  line-height: 1.5;
+  margin-top: 8px;
+  line-height: 1.4;
 }
 
 .model-explanation code {
@@ -656,13 +644,13 @@ body {
 }
 
 /* ==========================================================================
-   Tab 3: Controls & Dataset Simulator
+   Tab 3: Controls & Simulator
    ========================================================================== */
 
 .control-grid {
   display: grid;
   grid-template-columns: 1.2fr 1fr 1.2fr;
-  gap: 14px;
+  gap: 12px;
   height: 100%;
 }
 
@@ -670,21 +658,21 @@ body {
   background: var(--bg-card);
   border: 1px solid var(--border-color);
   border-radius: 8px;
-  padding: 14px;
+  padding: 12px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
 }
 
 .control-title {
-  font-size: 13px;
+  font-size: 12.5px;
   font-weight: 700;
   letter-spacing: 0.5px;
   color: var(--text-main);
 }
 
 .card-desc {
-  font-size: 11px;
+  font-size: 10.5px;
   color: var(--text-muted);
   line-height: 1.4;
 }
@@ -693,9 +681,9 @@ body {
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid var(--border-color);
   color: var(--text-main);
-  padding: 6px 10px;
+  padding: 5px 8px;
   border-radius: 6px;
-  font-size: 12px;
+  font-size: 11.5px;
   width: 100%;
   outline: none;
   font-family: var(--font-sans);
@@ -709,7 +697,7 @@ body {
 .replay-scrubber-row {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
 }
 
 .custom-slider {
@@ -720,23 +708,23 @@ body {
 
 .scrub-label {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 10px;
   color: var(--text-muted);
-  width: 80px;
+  width: 75px;
   text-align: right;
 }
 
 .playback-btn-group {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
 }
 
 .speed-selector {
   display: flex;
   align-items: center;
-  gap: 4px;
-  font-size: 11px;
+  gap: 3px;
+  font-size: 10px;
   color: var(--text-muted);
   margin-left: auto;
 }
@@ -745,9 +733,9 @@ body {
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid var(--border-color);
   color: var(--text-muted);
-  padding: 2px 6px;
+  padding: 2px 5px;
   border-radius: 4px;
-  font-size: 10px;
+  font-size: 9.5px;
   font-family: var(--font-mono);
   cursor: pointer;
 }
@@ -761,38 +749,29 @@ body {
 .phone-connect-actions {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
 }
 
 .sensor-permission-status {
-  font-size: 11px;
+  font-size: 10.5px;
   color: var(--accent-amber);
   font-family: var(--font-mono);
-}
-
-.qr-info {
-  margin-top: auto;
-  font-size: 11px;
-  color: var(--text-muted);
-  background: rgba(255, 255, 255, 0.03);
-  padding: 6px 10px;
-  border-radius: 4px;
 }
 
 .slider-row {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 11px;
+  gap: 6px;
+  font-size: 10.5px;
 }
 
 .slider-row label {
-  width: 150px;
+  width: 130px;
   color: var(--text-muted);
 }
 
 .slider-row span {
-  width: 60px;
+  width: 55px;
   text-align: right;
   font-family: var(--font-mono);
   color: var(--accent-cyan);
@@ -800,14 +779,14 @@ body {
 
 .slider-actions {
   display: flex;
-  gap: 6px;
+  gap: 5px;
   margin-top: auto;
 }
 
-/* Scrollbar Customization */
+/* Scrollbars */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
 }
 
 ::-webkit-scrollbar-track {
@@ -817,8 +796,4 @@ body {
 ::-webkit-scrollbar-thumb {
   background: rgba(255, 255, 255, 0.1);
   border-radius: 3px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.2);
 }

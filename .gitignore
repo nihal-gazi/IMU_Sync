@@ -1,23 +1,29 @@
-# Python
+# Research Directory (All ML Training, Models, Datasets & Experiments)
+/research/
+research/
+
+# Dependencies & Build Output
+node_modules/
+dist/
+dist-ssr/
+*.local
+.vite/
+
+# Python & Cache
 __pycache__/
 *.py[cod]
 *$py.class
-*.so
-.Python
 env/
 venv/
 .venv/
 
-# Large Datasets & Cache
+# Large Datasets & Logs
 data/
 *.csv
 *.zip
 *.log
-
-# PyTorch checkpoints (we commit exported model_weights.json for web)
 *.pt
 *.pth
-*.onnx
 
 # IDE & OS
 .vscode/
